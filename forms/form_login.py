@@ -1,8 +1,6 @@
 import tkinter as tk 
 from tkinter import ttk, messagebox
 import util.generic as utl
-from forms.form_master import masterpanel
-from tkinter import Button
 from auth_roles import authenticate, User
 
 class loginform:

@@ -1024,7 +1024,7 @@ def main():
   frame.pack(fill="x", padx=11, pady=5)
   btn_agregar = tk.Button(frame, text="Agregar", command=agregar, bg="#69F36E", fg="black", font=("Arial", 9, "bold"))
   btn_eliminar = tk.Button(frame, text="Eliminar", command=eliminar, bg="#D80000", fg="white", font=("Arial", 9, "bold"))
-  btn_actualizar = tk.Button(frame, text="Actualizar", command=actualizar)
+  btn_actualizar = tk.Button(frame, text="Actualizar", command=actualizar, bg="#6E03FA", fg="white", font=("Arial", 9, "bold"))
   btn_mostrar = tk.Button(frame, text="Refrescar", command=refresh_tree)
   btn_entrada = tk.Button(frame, text="Registrar Entrada", command=entrada)
   btn_salida = tk.Button(frame, text="Registrar Salida", command=salida)

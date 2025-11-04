@@ -6,7 +6,7 @@ class User:
     username: str
     role: str  # 'admin' or 'user'
 
-# Base de usuarios en memoria (ejemplo). En producción usar base de datos y contraseñas hasheadas.
+# Base de usuarios en memoria
 _USERS_DB = {
     "admin": ("password", "admin"),
     "lucio": ("1234", "user"),
