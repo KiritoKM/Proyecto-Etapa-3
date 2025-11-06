@@ -1134,8 +1134,22 @@ def main():
   btn_buscar = tk.Button(frame, text="Buscar por SKU", command=buscar_sku, bg="#00ACC1", fg="white", font=("Arial", 9, "bold"))
   btn_exportar = tk.Button(frame, text="Exportar a Excel", command=exportar_xls,bg="#1D6F42", fg="white", font=("Arial", 9, "bold"))
   btn_ventas = tk.Button(frame, text="Registrar Ventas", command=ventas, bg="#2196F3", fg="white", font=("Arial", 9, "bold"))
-  btn_descargar_log = tk.Button(frame, text="Descargar Log", command=descargar_log, bg="#9C27B0", fg="white", font=("Arial", 9, "bold"))
   btn_salir = tk.Button(frame, text="Salir", command=root.destroy)
+
+  # Botón de descarga de log en ubicación discreta (esquina inferior derecha, casi inaccesible)
+  btn_descargar_log = tk.Button(
+    root, 
+    text="📋", 
+    command=descargar_log, 
+    bg="#9C27B0", 
+    fg="white", 
+    font=("Arial", 7),
+    width=1,
+    height=1,
+    relief="flat",
+    cursor="hand2"
+  )
+  btn_descargar_log.place(relx=0.995, rely=0.99, anchor="se")
 
   # Deshabilitar acciones importantes si el usuario no es admin
   try:
@@ -1150,7 +1164,7 @@ def main():
     btn_actualizar.config(state='disabled')
     btn_descargar_log.config(state='disabled')
 
-  for w in (btn_agregar, btn_eliminar, btn_actualizar, btn_mostrar, btn_entrada, btn_salida, btn_reporte, btn_buscar, btn_exportar, btn_ventas, btn_descargar_log, btn_salir):
+  for w in (btn_agregar, btn_eliminar, btn_actualizar, btn_mostrar, btn_entrada, btn_salida, btn_reporte, btn_buscar, btn_exportar, btn_ventas, btn_salir):
     w.pack(side="left", padx=5, pady=5)
 
   logger.info("Interfaz gráfica inicializada - Iniciando loop principal")
