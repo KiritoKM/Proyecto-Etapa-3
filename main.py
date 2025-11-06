@@ -7,11 +7,20 @@ import pandas as pd
 import calendar
 import logging 
 from datetime import datetime
-# Configurar logging
+import faker as fk
+import pickle
+import util.generic as utl
+
+# Configurar logging con archivo
+log_filename = f"inventario_log_{datetime.now().strftime('%Y%m%d')}.log"
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
+    datefmt='%Y-%m-%d %H:%M:%S',
+    handlers=[
+        logging.FileHandler(log_filename, encoding='utf-8'),
+        logging.StreamHandler()
+    ]
 )
 logger = logging.getLogger(__name__)
 
@@ -24,6 +33,8 @@ MAGENTA = '\033[95m'
 CYAN = '\033[96m'
 BOLD = '\033[1m'
 RESET = '\033[0m'
+
+faker = fk.Faker()
 
 
 
@@ -61,7 +72,7 @@ class Producto:
     logger.info(f"Precio actualizado para {self.nombre} (SKU: {self.sku}): ${int(precio_anterior)} -> ${int(self.precio_venta)}")
 
   def verificar_stock_bajo(self):
-    return self.cantidad < 5
+    return self.cantidad < 10
 
   def obtener_info(self):
     return (
@@ -92,13 +103,22 @@ class inventario:
     self.df = pd.DataFrame(rows, columns=[
       'Nombre', 'PrecioCompra', 'PrecioVenta', 'Cantidad', 'SKU', 'Proveedor'
     ])
+  
+  def guardar_inventario(self):
+    """Guarda el inventario en un archivo pickle"""
+    try:
+      with open("inventario_data.pkl", "wb") as f:
+        pickle.dump(self.productos, f)
+      logger.debug("Inventario guardado en archivo pickle")
+    except Exception as e:
+      logger.error(f"Error al guardar inventario: {str(e)}")
 
   def get_dataframe(self):
     return self.df.copy()
 
 
 
-  # --- Métodos orientados a GUI / DataFrame ---
+  # --- Funciones en Tkinter---
   def agregar_producto_manual(self, nombre, precio_compra, precio_venta, cantidad, proveedor):
     nombre = str(nombre).strip().capitalize()
     proveedor = str(proveedor).strip().capitalize()
@@ -127,6 +147,7 @@ class inventario:
     producto = Producto(nombre, precio_compra, precio_venta, cantidad, sku, proveedor)
     self.productos.append(producto)
     self.sincronizar_data()
+    self.guardar_inventario()
     logger.info(f"Producto agregado al inventario: {producto.nombre} (SKU: {producto.sku}) - Total productos: {len(self.productos)}")
     return producto
 
@@ -179,6 +200,7 @@ class inventario:
       if producto.nombre == nombre:
         self.productos.remove(producto)
         self.sincronizar_data()
+        self.guardar_inventario()
         logger.info(f"Producto eliminado: {nombre} (SKU: {producto.sku}) - Total productos: {len(self.productos)}")
         return producto
 
@@ -203,6 +225,7 @@ class inventario:
     producto.precio_venta = nuevo_precio_venta
     producto.actualizar_stock(nueva_cantidad)
     self.sincronizar_data()
+    self.guardar_inventario()
     logger.info(f"Producto actualizado: {nombre} - Precio compra: ${int(nuevo_precio_compra)}, Precio venta: ${int(nuevo_precio_venta)}, Cantidad: {nueva_cantidad}")
     return producto
 
@@ -221,6 +244,7 @@ class inventario:
     cantidad_anterior = producto.cantidad
     producto.actualizar_stock(producto.cantidad + cantidad_entrada)
     self.sincronizar_data()
+    self.guardar_inventario()
     logger.info(f"Entrada registrada: {nombre} - Cantidad agregada: {cantidad_entrada} - Stock anterior: {cantidad_anterior} - Stock nuevo: {producto.cantidad}")
     return producto
 
@@ -242,6 +266,7 @@ class inventario:
     cantidad_anterior = producto.cantidad
     producto.actualizar_stock(producto.cantidad - cantidad_salida)
     self.sincronizar_data()
+    self.guardar_inventario()
     logger.info(f"Salida registrada: {nombre} - Cantidad retirada: {cantidad_salida} - Stock anterior: {cantidad_anterior} - Stock nuevo: {producto.cantidad}")
     return producto
 
@@ -301,7 +326,7 @@ class RegistroVentas:
     if cantidad > producto.cantidad:
       raise ValueError(f"Stock insuficiente. Disponible: {producto.cantidad}, Solicitado: {cantidad}")
     
-    # Usar precio del inventario si no se especifica
+    # Usar precio del inventario 
     if precio_unitario is None:
       precio_unitario = producto.precio_venta
     else:
@@ -355,6 +380,11 @@ class RegistroVentas:
       ventas_por_producto[venta.producto_nombre]['cantidad_total'] += venta.cantidad
       ventas_por_producto[venta.producto_nombre]['total_ventas'] += venta.total
     return ventas_por_producto
+  
+  
+
+  
+
 
 
 # main ------------------------------------------------------------------------------------------
@@ -368,6 +398,10 @@ def main():
   root = tk.Tk()
   root.title("Gestión de Inventario")
   root.geometry("1200x600")
+  root.configure(bg="#f0f0f0")
+  root.resizable(width=False, height=False)
+  utl.centrar_ventana(root, 1200, 600)
+
 
   columns = ("Nombre", "Precio Venta", "Cantidad", "SKU", "Proveedor")
   tree = ttk.Treeview(root, columns=columns, show="headings", height=15)
@@ -375,6 +409,19 @@ def main():
     tree.heading(col, text=col)
     tree.column(col, anchor="center", width=150)
   tree.pack(fill="both", expand=True, padx=10, pady=10)
+
+  # Cargar inventario desde archivo pickle
+  try:
+    with open("inventario_data.pkl", "rb") as f:
+      inventario_obj.productos = pickle.load(f)
+    inventario_obj.sincronizar_data()
+    logger.info(f"Inventario cargado desde archivo: {len(inventario_obj.productos)} productos")
+  except FileNotFoundError:
+    logger.info("Archivo de inventario no encontrado. Iniciando con inventario vacío.")
+  except Exception as e:
+    logger.error(f"Error al cargar inventario: {str(e)}")
+    messagebox.showerror("Error", f"Error al cargar inventario: {str(e)}")
+
 
   # --- Pagination state --- IA --------------------------------------------------
   page_size = 100
@@ -394,6 +441,7 @@ def main():
       total = len(df)
       if total == 0:
         update_pagination_info(0, 0, 0)
+        actualizar_valor_total()
         return
       total_pages = max(1, (total + page_size - 1) // page_size)
       # clamp current_page
@@ -416,6 +464,7 @@ def main():
       total = len(prods)
       if total == 0:
         update_pagination_info(0, 0, 0)
+        actualizar_valor_total()
         return
       total_pages = max(1, (total + page_size - 1) // page_size)
       if current_page < 1:
@@ -430,6 +479,9 @@ def main():
           values=(p.nombre, f"${int(p.precio_venta)}", p.cantidad, p.sku, p.proveedor)
         )
       update_pagination_info(start + 1, min(end, total), total)
+    
+    # Actualizar valor total automáticamente
+    actualizar_valor_total()
 
   def update_pagination_info(from_idx, to_idx, total):
     # updates the pagination label(s)
@@ -521,6 +573,19 @@ def main():
   opt = tk.OptionMenu(pagination_frame, var_page_size, "50", "100", "250", "500", "1000", command=change_page_size)
   opt.config(width=6)
   opt.pack(side="right")
+  
+  # Frame para mostrar valor total del inventario
+  frame_valor_total = tk.Frame(root, bg="#f0f0f0")
+  frame_valor_total.pack(fill="x", padx=10, pady=5)
+  
+  lbl_valor_total = tk.Label(
+    frame_valor_total, 
+    text="Valor Total del Inventario: $0", 
+    font=("Arial", 14, "bold"),
+    bg="#f0f0f0",
+    fg="#000000"
+  )
+  lbl_valor_total.pack(side="right", padx=10)
 
   #---------------------------------------IA PURA---------------------------------------------
 
@@ -809,11 +874,14 @@ def main():
     txt.config(state="disabled")
     txt.pack(fill="both", expand=True)
 
-  def calcular_valor():
-    logger.info("Calculando valor total del inventario")
-    valor_total = inventario_obj.calcular_valor_total_recursivo()
-    logger.info(f"Valor total del inventario calculado: ${int(valor_total)}")
-    messagebox.showinfo("Valor total", f"El valor total del inventario es: ${int(valor_total)}")
+  def actualizar_valor_total():
+    """Actualiza el Label con el valor total del inventario"""
+    try:
+      valor_total = inventario_obj.calcular_valor_total_recursivo()
+      lbl_valor_total.config(text=f"Valor Total del Inventario: ${int(valor_total):,}")
+    except Exception as e:
+      logger.error(f"Error al calcular valor total: {str(e)}")
+      lbl_valor_total.config(text="Valor Total del Inventario: $0")
 
   def buscar_sku():
     logger.info("Abriendo formulario para buscar por SKU")
@@ -876,6 +944,38 @@ def main():
     except Exception as e:
       logger.error(f"Error al exportar a Excel: {str(e)}")
       messagebox.showerror("Error", f"No se pudo exportar el inventario: {str(e)}")
+
+  def descargar_log():
+    """Descarga el archivo de log del sistema (solo admin)"""
+    logger.info("Solicitud de descarga de log por administrador")
+    try:
+      import os
+      import shutil
+      
+      # Buscar el archivo de log más reciente
+      log_files = [f for f in os.listdir('.') if f.startswith('inventario_log_') and f.endswith('.log')]
+      
+      if not log_files:
+        messagebox.showwarning("Aviso", "No se encontró ningún archivo de log.")
+        logger.warning("Intento de descargar log pero no hay archivos de log")
+        return
+      
+      # Ordenar por fecha de modificación (más reciente primero)
+      log_files.sort(key=lambda x: os.path.getmtime(x), reverse=True)
+      log_file = log_files[0]
+      
+      # Crear nombre de copia con timestamp
+      timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+      copy_filename = f"log_inventario_{timestamp}.log"
+      
+      # Copiar el archivo
+      shutil.copy2(log_file, copy_filename)
+      
+      logger.info(f"Log descargado exitosamente: '{copy_filename}'")
+      messagebox.showinfo("Éxito", f"Log descargado como '{copy_filename}'")
+    except Exception as e:
+      logger.error(f"Error al descargar log: {str(e)}")
+      messagebox.showerror("Error", f"No se pudo descargar el log: {str(e)}")
 
   def ventas():
     logger.info("Abriendo ventana de registro de ventas")
@@ -1019,6 +1119,8 @@ def main():
     refresh_tree_ventas()
     e_producto.focus_set()
 
+    
+
   # Botones
   frame = tk.Frame(root)
   frame.pack(fill="x", padx=11, pady=5)
@@ -1028,29 +1130,31 @@ def main():
   btn_mostrar = tk.Button(frame, text="Refrescar", command=refresh_tree)
   btn_entrada = tk.Button(frame, text="Registrar Entrada", command=entrada)
   btn_salida = tk.Button(frame, text="Registrar Salida", command=salida)
-  btn_reporte = tk.Button(frame, text="Reporte stock bajo", command=reporte_stock_bajo, bg="#FFAE00", fg="white", font=("Arial", 9, "bold"))
-  btn_valor = tk.Button(frame, text="Calcular valor total", command=calcular_valor)
+  btn_reporte = tk.Button(frame, text="Reporte stock bajo", command=reporte_stock_bajo, bg="#FF6600", fg="white", font=("Arial", 9, "bold"))
   btn_buscar = tk.Button(frame, text="Buscar por SKU", command=buscar_sku, bg="#00ACC1", fg="white", font=("Arial", 9, "bold"))
   btn_exportar = tk.Button(frame, text="Exportar a Excel", command=exportar_xls,bg="#1D6F42", fg="white", font=("Arial", 9, "bold"))
   btn_ventas = tk.Button(frame, text="Registrar Ventas", command=ventas, bg="#2196F3", fg="white", font=("Arial", 9, "bold"))
+  btn_descargar_log = tk.Button(frame, text="Descargar Log", command=descargar_log, bg="#9C27B0", fg="white", font=("Arial", 9, "bold"))
   btn_salir = tk.Button(frame, text="Salir", command=root.destroy)
 
-  # Deshabilitar acciones administrativas si el usuario no es admin
+  # Deshabilitar acciones importantes si el usuario no es admin
   try:
     user_role = getattr(current_user, 'role', None)
     if user_role != 'admin':
       btn_eliminar.config(state='disabled')
       btn_actualizar.config(state='disabled')
+      btn_descargar_log.config(state='disabled')
   except NameError:
     # current_user no definido -> comportarse como no autenticado (deshabilitar admin)
     btn_eliminar.config(state='disabled')
     btn_actualizar.config(state='disabled')
+    btn_descargar_log.config(state='disabled')
 
-  for w in (btn_agregar, btn_eliminar, btn_actualizar, btn_mostrar, btn_entrada, btn_salida, btn_reporte, btn_valor, btn_buscar, btn_exportar, btn_ventas, btn_salir):
+  for w in (btn_agregar, btn_eliminar, btn_actualizar, btn_mostrar, btn_entrada, btn_salida, btn_reporte, btn_buscar, btn_exportar, btn_ventas, btn_descargar_log, btn_salir):
     w.pack(side="left", padx=5, pady=5)
 
   logger.info("Interfaz gráfica inicializada - Iniciando loop principal")
-  refresh_tree()
+  refresh_tree()  # Esto también actualizará el valor total automáticamente
   root.mainloop()
   logger.info("=== Aplicación cerrada ===")
 

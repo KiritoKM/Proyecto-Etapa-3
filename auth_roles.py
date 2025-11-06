@@ -10,6 +10,7 @@ class User:
 _USERS_DB = {
     "admin": ("password", "admin"),
     "lucio": ("1234", "user"),
+    "camilo": ("abcd", "user"),
 }
 
 

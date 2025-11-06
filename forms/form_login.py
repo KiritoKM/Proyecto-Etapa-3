@@ -82,7 +82,3 @@ class loginform:
 
 
         self.ventana.mainloop()
-
-
-# Si quieres probarlo directamente:
-# loginform()
