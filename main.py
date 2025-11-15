@@ -2,7 +2,7 @@
 
 import random
 import tkinter as tk
-from tkinter import messagebox, simpledialog, ttk
+from tkinter import messagebox, simpledialog, ttk, filedialog
 import pandas as pd
 import calendar
 import logging 
@@ -149,7 +149,7 @@ class inventario:
 
 
   # --- Funciones en Tkinter---
-  def agregar_producto_manual(self, nombre, precio_compra, precio_venta, cantidad, proveedor, categoria="Sin categoría"):
+  def agregar_producto_manual(self, nombre, precio_compra, precio_venta, cantidad, proveedor, categoria="Sin categoría", sku=None):
     nombre = str(nombre).strip().capitalize()
     proveedor = str(proveedor).strip().capitalize()
     categoria = str(categoria).strip()
@@ -174,9 +174,14 @@ class inventario:
       raise ValueError("El proveedor del producto no puede estar vacío.")
     if not categoria:
       categoria = "Sin categoría"
-    sku = random.randint(100000, 999999)
-    while any(producto.sku == sku for producto in self.productos):
+    if sku is None:
       sku = random.randint(100000, 999999)
+      while any(producto.sku == sku for producto in self.productos):
+        sku = random.randint(100000, 999999)
+    else:
+      sku = int(sku)
+      if any(producto.sku == sku for producto in self.productos):
+        raise ValueError(f"Ya existe un producto con el SKU '{sku}'.")
     producto = Producto(nombre, precio_compra, precio_venta, cantidad, sku, proveedor, categoria)
     self.productos.append(producto)
     self.sincronizar_data()
@@ -308,17 +313,19 @@ class inventario:
 
 # Sistema de ventas -----------------------------------------------------------------------------
 class Venta:
-  def __init__(self, producto_nombre, cantidad, precio_unitario, total, fecha_hora, sku):
+  def __init__(self, producto_nombre, cantidad, precio_unitario, total, fecha_hora, sku, categoria):
     self.producto_nombre = producto_nombre
     self.cantidad = int(cantidad)
     self.precio_unitario = float(precio_unitario)
     self.total = float(total)
     self.fecha_hora = fecha_hora
     self.sku = int(sku)
+    self.categoria = categoria
 
   def to_dict(self):
     return {
       'Producto': self.producto_nombre,
+      'Categoría': self.categoria,
       'Cantidad': self.cantidad,
       'Precio Unitario': self.precio_unitario,
       'Total': self.total,
@@ -332,14 +339,35 @@ class RegistroVentas:
     self.ventas = []
     self.inventario = inventario_obj
     self.df = pd.DataFrame(columns=[
-      'Producto', 'Cantidad', 'Precio Unitario', 'Total', 'Fecha/Hora', 'SKU'
+      'Producto', 'Categoría', 'Cantidad', 'Precio Unitario', 'Total', 'Fecha/Hora', 'SKU'
     ])
 
   def sincronizar_data(self):
     rows = [v.to_dict() for v in self.ventas]
     self.df = pd.DataFrame(rows, columns=[
-      'Producto', 'Cantidad', 'Precio Unitario', 'Total', 'Fecha/Hora', 'SKU'
+      'Producto', 'Categoría', 'Cantidad', 'Precio Unitario', 'Total', 'Fecha/Hora', 'SKU'
     ])
+
+  def guardar_ventas(self):
+    """Guarda las ventas en un archivo pickle"""
+    try:
+      with open("ventas_data.pkl", "wb") as f:
+        pickle.dump(self.ventas, f)
+      logger.debug("Ventas guardadas en archivo pickle")
+    except Exception as e:
+      logger.error(f"Error al guardar ventas: {str(e)}")
+
+  def cargar_ventas(self):
+    """Carga las ventas desde un archivo pickle"""
+    try:
+      with open("ventas_data.pkl", "rb") as f:
+        self.ventas = pickle.load(f)
+      self.sincronizar_data()
+      logger.info(f"Ventas cargadas desde archivo: {len(self.ventas)} ventas registradas")
+    except FileNotFoundError:
+      logger.info("Archivo de ventas no encontrado. Iniciando con registro de ventas vacío.")
+    except Exception as e:
+      logger.error(f"Error al cargar ventas: {str(e)}")
 
   def registrar_venta(self, nombre_producto, cantidad, precio_unitario=None):
     nombre_producto = str(nombre_producto).strip().capitalize()
@@ -378,18 +406,23 @@ class RegistroVentas:
     
     # Crear registro de venta
     fecha_hora = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    categoria = getattr(producto, 'categoria', 'Sin categoría')
     venta = Venta(
       producto_nombre=nombre_producto,
       cantidad=cantidad,
       precio_unitario=precio_unitario,
       total=total,
       fecha_hora=fecha_hora,
-      sku=producto.sku
+      sku=producto.sku,
+      categoria=categoria
     )
     
     # Registrar venta
     self.ventas.append(venta)
     self.sincronizar_data()
+    
+    # Guardar ventas en archivo pickle
+    self.guardar_ventas()
     
     # Actualizar stock en inventario (salida automática)
     self.inventario.registrar_salida_producto(nombre_producto, cantidad)
@@ -422,6 +455,482 @@ class RegistroVentas:
 
 
 
+# Funciones de importación y limpieza de datos --------------------------------------------
+def importar_inventario_desde_excel(inventario_obj, ruta_archivo):
+  """Importa productos desde un archivo Excel"""
+  logger.info(f"Importando inventario desde Excel: {ruta_archivo}")
+  productos_importados = 0
+  productos_duplicados = 0
+  productos_con_errores = 0
+  
+  try:
+    df = pd.read_excel(ruta_archivo)
+    
+    # Mapear columnas posibles
+    columnas_esperadas = {
+      'Nombre': ['Nombre', 'nombre', 'NOMBRE', 'Producto', 'producto', 'PRODUCTO'],
+      'PrecioCompra': ['PrecioCompra', 'precio_compra', 'Precio Compra', 'Precio de Compra', 'precio compra'],
+      'PrecioVenta': ['PrecioVenta', 'precio_venta', 'Precio Venta', 'Precio de Venta', 'precio venta'],
+      'Cantidad': ['Cantidad', 'cantidad', 'CANTIDAD', 'Stock', 'stock', 'STOCK'],
+      'SKU': ['SKU', 'sku', 'Codigo', 'código', 'Código', 'CODIGO'],
+      'Proveedor': ['Proveedor', 'proveedor', 'PROVEEDOR', 'Supplier', 'supplier'],
+      'Categoría': ['Categoría', 'categoria', 'Categoría', 'CATEGORIA', 'Category', 'category', 'Tipo', 'tipo']
+    }
+    
+    # Buscar columnas en el DataFrame
+    columnas_encontradas = {}
+    for col_esperada, posibles_nombres in columnas_esperadas.items():
+      for nombre_posible in posibles_nombres:
+        if nombre_posible in df.columns:
+          columnas_encontradas[col_esperada] = nombre_posible
+          break
+    
+    if 'Nombre' not in columnas_encontradas:
+      raise ValueError("No se encontró la columna 'Nombre' en el archivo Excel")
+    
+    for index, row in df.iterrows():
+      try:
+        nombre = str(row[columnas_encontradas.get('Nombre', 'Nombre')]).strip()
+        if pd.isna(nombre) or nombre == "" or nombre == "nan":
+          productos_con_errores += 1
+          continue
+        
+        precio_compra = float(row[columnas_encontradas.get('PrecioCompra', 'PrecioCompra')]) if 'PrecioCompra' in columnas_encontradas else 0
+        precio_venta = float(row[columnas_encontradas.get('PrecioVenta', 'PrecioVenta')]) if 'PrecioVenta' in columnas_encontradas else precio_compra * 1.5
+        cantidad = int(row[columnas_encontradas.get('Cantidad', 'Cantidad')]) if 'Cantidad' in columnas_encontradas else 0
+        sku = int(row[columnas_encontradas.get('SKU', 'SKU')]) if 'SKU' in columnas_encontradas else None
+        proveedor = str(row[columnas_encontradas.get('Proveedor', 'Proveedor')]).strip() if 'Proveedor' in columnas_encontradas else "Proveedor Desconocido"
+        categoria = str(row[columnas_encontradas.get('Categoría', 'Categoría')]).strip() if 'Categoría' in columnas_encontradas else "Sin categoría"
+        
+        if pd.isna(proveedor) or proveedor == "" or proveedor == "nan":
+          proveedor = "Proveedor Desconocido"
+        if pd.isna(categoria) or categoria == "" or categoria == "nan":
+          categoria = "Sin categoría"
+        
+        # Verificar si el producto ya existe
+        if any(p.nombre == nombre.capitalize() for p in inventario_obj.productos):
+          productos_duplicados += 1
+          continue
+        
+        inventario_obj.agregar_producto_manual(
+          nombre=nombre,
+          precio_compra=precio_compra,
+          precio_venta=precio_venta,
+          cantidad=cantidad,
+          proveedor=proveedor,
+          categoria=categoria,
+          sku=sku
+        )
+        productos_importados += 1
+      except Exception as e:
+        logger.warning(f"Error al importar producto en fila {index + 2}: {str(e)}")
+        productos_con_errores += 1
+        continue
+    
+    logger.info(f"Importación completada: {productos_importados} productos importados, {productos_duplicados} duplicados, {productos_con_errores} con errores")
+    return {
+      'importados': productos_importados,
+      'duplicados': productos_duplicados,
+      'errores': productos_con_errores
+    }
+  except Exception as e:
+    logger.error(f"Error al importar inventario desde Excel: {str(e)}")
+    raise
+
+
+def importar_ventas_desde_excel(registro_ventas, ruta_archivo):
+  """Importa ventas desde un archivo Excel"""
+  logger.info(f"Importando ventas desde Excel: {ruta_archivo}")
+  ventas_importadas = 0
+  ventas_con_errores = 0
+  
+  try:
+    df = pd.read_excel(ruta_archivo)
+    
+    # Mapear columnas posibles
+    columnas_esperadas = {
+      'Producto': ['Producto', 'producto', 'PRODUCTO', 'Nombre', 'nombre'],
+      'Cantidad': ['Cantidad', 'cantidad', 'CANTIDAD'],
+      'Precio Unitario': ['Precio Unitario', 'precio_unitario', 'Precio', 'precio', 'Precio Unit'],
+      'Total': ['Total', 'total', 'TOTAL'],
+      'Fecha/Hora': ['Fecha/Hora', 'Fecha', 'fecha', 'Fecha y Hora', 'Fecha_Hora', 'fecha_hora'],
+      'SKU': ['SKU', 'sku', 'Codigo', 'código'],
+      'Categoría': ['Categoría', 'categoria', 'Categoría', 'Category', 'category']
+    }
+    
+    # Buscar columnas en el DataFrame
+    columnas_encontradas = {}
+    for col_esperada, posibles_nombres in columnas_esperadas.items():
+      for nombre_posible in posibles_nombres:
+        if nombre_posible in df.columns:
+          columnas_encontradas[col_esperada] = nombre_posible
+          break
+    
+    if 'Producto' not in columnas_encontradas:
+      raise ValueError("No se encontró la columna 'Producto' en el archivo Excel")
+    
+    for index, row in df.iterrows():
+      try:
+        producto_nombre = str(row[columnas_encontradas.get('Producto', 'Producto')]).strip()
+        if pd.isna(producto_nombre) or producto_nombre == "" or producto_nombre == "nan":
+          ventas_con_errores += 1
+          continue
+        
+        cantidad = int(row[columnas_encontradas.get('Cantidad', 'Cantidad')]) if 'Cantidad' in columnas_encontradas else 1
+        precio_unitario = float(row[columnas_encontradas.get('Precio Unitario', 'Precio Unitario')]) if 'Precio Unitario' in columnas_encontradas else 0
+        total = float(row[columnas_encontradas.get('Total', 'Total')]) if 'Total' in columnas_encontradas else cantidad * precio_unitario
+        fecha_hora = str(row[columnas_encontradas.get('Fecha/Hora', 'Fecha/Hora')]) if 'Fecha/Hora' in columnas_encontradas else datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        sku = int(row[columnas_encontradas.get('SKU', 'SKU')]) if 'SKU' in columnas_encontradas else 0
+        categoria = str(row[columnas_encontradas.get('Categoría', 'Categoría')]).strip() if 'Categoría' in columnas_encontradas else "Sin categoría"
+        
+        if pd.isna(categoria) or categoria == "" or categoria == "nan":
+          categoria = "Sin categoría"
+        
+        # Validar datos
+        if cantidad <= 0 or precio_unitario <= 0 or total <= 0:
+          ventas_con_errores += 1
+          continue
+        
+        # Crear venta
+        venta = Venta(
+          producto_nombre=producto_nombre,
+          cantidad=cantidad,
+          precio_unitario=precio_unitario,
+          total=total,
+          fecha_hora=fecha_hora,
+          sku=sku,
+          categoria=categoria
+        )
+        
+        registro_ventas.ventas.append(venta)
+        ventas_importadas += 1
+      except Exception as e:
+        logger.warning(f"Error al importar venta en fila {index + 2}: {str(e)}")
+        ventas_con_errores += 1
+        continue
+    
+    registro_ventas.sincronizar_data()
+    registro_ventas.guardar_ventas()
+    logger.info(f"Importación de ventas completada: {ventas_importadas} ventas importadas, {ventas_con_errores} con errores")
+    return {
+      'importadas': ventas_importadas,
+      'errores': ventas_con_errores
+    }
+  except Exception as e:
+    logger.error(f"Error al importar ventas desde Excel: {str(e)}")
+    raise
+
+
+def limpiar_datos_nulos(inventario_obj, registro_ventas):
+  """Limpia datos nulos, valores negativos y otros errores en productos y ventas"""
+  logger.info("Iniciando limpieza de datos nulos y errores")
+  
+  productos_limpiados = 0
+  ventas_limpiadas = 0
+  ventas_eliminadas = 0
+  
+  # Limpiar productos
+  for producto in inventario_obj.productos:
+    cambios = False
+    
+    if not producto.nombre or producto.nombre.strip() == "":
+      producto.nombre = f"Producto_SKU_{producto.sku}"
+      cambios = True
+    
+    if producto.precio_compra < 0:
+      producto.precio_compra = abs(producto.precio_compra)
+      cambios = True
+    if producto.precio_venta < 0 or producto.precio_venta < producto.precio_compra:
+      producto.precio_venta = max(producto.precio_compra * 1.2, 1000)
+      cambios = True
+    
+    if producto.cantidad < 0:
+      producto.cantidad = 0
+      cambios = True
+    
+    if not producto.categoria or producto.categoria.strip() == "":
+      producto.categoria = "Sin categoría"
+      cambios = True
+    
+    if not producto.proveedor or producto.proveedor.strip() == "":
+      producto.proveedor = "Proveedor Desconocido"
+      cambios = True
+    
+    if producto.sku <= 0:
+      # Generar SKU único en rango 1 a 600,000
+      skus_existentes = {p.sku for p in inventario_obj.productos if p.sku > 0}
+      if skus_existentes:
+        producto.sku = min(max(skus_existentes) + 1, 600000)
+      else:
+        producto.sku = random.randint(1, 600000)
+      cambios = True
+    
+    if cambios:
+      productos_limpiados += 1
+  
+  # Limpiar ventas
+  ventas_validas = []
+  for venta in registro_ventas.ventas:
+    es_valida = True
+    
+    if not venta.producto_nombre or venta.producto_nombre.strip() == "":
+      es_valida = False
+    
+    if venta.cantidad <= 0:
+      es_valida = False
+    
+    if venta.precio_unitario <= 0:
+      es_valida = False
+    
+    if venta.total <= 0 or abs(venta.total - (venta.cantidad * venta.precio_unitario)) > 0.01:
+      venta.total = venta.cantidad * venta.precio_unitario
+      ventas_limpiadas += 1
+    
+    try:
+      datetime.strptime(venta.fecha_hora, '%Y-%m-%d %H:%M:%S')
+    except:
+      es_valida = False
+    
+    if not venta.categoria or venta.categoria.strip() == "":
+      venta.categoria = "Sin categoría"
+      ventas_limpiadas += 1
+    
+    if venta.sku <= 0:
+      es_valida = False
+    
+    if es_valida:
+      ventas_validas.append(venta)
+    else:
+      ventas_eliminadas += 1
+  
+  registro_ventas.ventas = ventas_validas
+  registro_ventas.sincronizar_data()
+  inventario_obj.sincronizar_data()
+  
+  inventario_obj.guardar_inventario()
+  registro_ventas.guardar_ventas()
+  
+  logger.info(f"Limpieza completada: {productos_limpiados} productos corregidos, {ventas_limpiadas} ventas corregidas, {ventas_eliminadas} ventas eliminadas")
+  
+  return {
+    'productos_limpiados': productos_limpiados,
+    'ventas_limpiadas': ventas_limpiadas,
+    'ventas_eliminadas': ventas_eliminadas
+  }
+
+
+def generar_datos_aleatorios_excel(cantidad_productos=50, cantidad_ventas=200):
+  """Genera productos y ventas aleatorios con errores y datos nulos, guardándolos en archivos Excel"""
+  logger.info(f"Generando {cantidad_productos} productos y {cantidad_ventas} ventas aleatorias en archivos Excel")
+  
+  # Validar que no se exceda el límite de SKU
+  if cantidad_productos > 600000:
+    raise ValueError(f"La cantidad máxima de productos es 600,000. Se solicitó: {cantidad_productos}")
+  
+  categorias = cargar_categorias()
+  productos_data = []
+  ventas_data = []
+  
+  # Usar conjuntos para rastrear SKUs y nombres únicos y evitar duplicados
+  skus_usados = set()
+  nombres_usados = set()
+  
+  # Generar productos aleatorios
+  for i in range(cantidad_productos):
+    try:
+      # Generar datos con posibilidad de valores nulos/erróneos
+      if random.random() > 0.1:  # 90% de probabilidad de nombre válido
+        # Generar nombres únicos usando faker
+        intentos_nombre = 0
+        while intentos_nombre < 100:
+          nombre = faker.word().capitalize() + "_" + faker.word().capitalize() + "_" + str(i + 1)
+          if nombre not in nombres_usados:
+            break
+          intentos_nombre += 1
+        if intentos_nombre >= 100:
+          nombre = f"Producto_{i + 1}"
+      else:
+        nombre = None if random.random() > 0.5 else ""  # 10% de probabilidad de nulo o vacío
+      
+      if nombre is None or nombre == "":
+        nombre = f"Producto_{i + 1}"
+      
+      # Asegurar que el nombre sea único
+      if nombre in nombres_usados:
+        nombre = f"{nombre}_{i + 1}"
+      
+      nombres_usados.add(nombre)
+      
+      # Categoría con posibilidad de nulo
+      if random.random() > 0.15:
+        categoria = random.choice(categorias)
+      else:
+        categoria = None if random.random() > 0.5 else ""
+      
+      if not categoria:
+        categoria = "Sin categoría"
+      
+      # Proveedor con posibilidad de nulo
+      if random.random() > 0.1:
+        proveedor = faker.company()
+      else:
+        proveedor = None if random.random() > 0.5 else ""
+      
+      if not proveedor:
+        proveedor = "Proveedor Desconocido"
+      
+      # Precios con posibilidad de valores negativos o nulos
+      if random.random() > 0.1:
+        precio_compra = round(random.uniform(1000, 50000), 2)
+      else:
+        precio_compra = round(random.uniform(-100, 0), 2) if random.random() > 0.5 else 0
+      
+      if random.random() > 0.1:
+        precio_venta = round(precio_compra * random.uniform(1.2, 2.5), 2)
+      else:
+        precio_venta = round(random.uniform(-50, 0), 2) if random.random() > 0.5 else None
+      
+      if precio_venta is None or precio_venta <= 0:
+        precio_venta = round(precio_compra * 1.5, 2)
+      
+      # Cantidad con posibilidad de valores negativos
+      if random.random() > 0.1:
+        cantidad = random.randint(0, 500)
+      else:
+        cantidad = random.randint(-50, -1)
+      
+      if cantidad < 0:
+        cantidad = 0
+      
+      # SKU único - usar secuencial desde 1 hasta cantidad_productos (máximo 600,000)
+      if random.random() > 0.1:  # 90% de probabilidad de SKU válido
+        # Usar SKU secuencial para garantizar unicidad (1, 2, 3, ..., cantidad_productos)
+        sku = i + 1
+      else:
+        # 10% de probabilidad de SKU inválido (para pruebas de limpieza)
+        sku = random.randint(-1000, 0) if random.random() > 0.5 else 0
+      
+      # Registrar SKU usado (solo si es válido)
+      if sku > 0:
+        skus_usados.add(sku)
+      
+      productos_data.append({
+        'Nombre': nombre,
+        'Categoría': categoria,
+        'PrecioCompra': precio_compra,
+        'PrecioVenta': precio_venta,
+        'Cantidad': cantidad,
+        'SKU': sku,
+        'Proveedor': proveedor
+      })
+    except Exception as e:
+      logger.warning(f"Error al generar producto {i}: {str(e)}")
+      continue
+  
+  # Generar ventas aleatorias
+  fecha_inicio = datetime.now() - pd.Timedelta(days=730)  # Hace dos años
+  
+  for i in range(cantidad_ventas):
+    try:
+      # Seleccionar producto aleatorio de los generados
+      if productos_data:
+        producto_ref = random.choice(productos_data)
+        producto_nombre = producto_ref['Nombre']
+        sku = producto_ref['SKU']
+        categoria = producto_ref['Categoría']
+      else:
+        producto_nombre = faker.word().capitalize()
+        # Generar SKU aleatorio dentro del rango válido
+        sku = random.randint(1, min(600000, cantidad_productos)) if cantidad_productos > 0 else random.randint(1, 600000)
+        categoria = random.choice(categorias)
+      
+      # Fecha aleatoria en los últimos dos años
+      dias_aleatorios = random.randint(0, 730)
+      fecha_venta = fecha_inicio + pd.Timedelta(days=dias_aleatorios)
+      fecha_venta_str = fecha_venta.strftime('%Y-%m-%d %H:%M:%S')
+      
+      # Cantidad con posibilidad de valores erróneos
+      if random.random() > 0.15:
+        cantidad = random.randint(1, 20)
+      else:
+        cantidad = random.randint(-5, -1) if random.random() > 0.5 else random.randint(1000, 5000)
+      
+      if cantidad <= 0:
+        cantidad = 1
+      
+      # Precio con posibilidad de valores erróneos
+      if productos_data and random.random() > 0.1:
+        precio_unitario = round(producto_ref['PrecioVenta'] * random.uniform(0.8, 1.2), 2)
+      else:
+        precio_unitario = round(random.uniform(-100, 0), 2) if random.random() > 0.5 else round(random.uniform(1000, 50000), 2)
+      
+      if precio_unitario <= 0:
+        precio_unitario = round(random.uniform(1000, 50000), 2)
+      
+      # Total con posibilidad de cálculo incorrecto
+      if random.random() > 0.1:
+        total = round(cantidad * precio_unitario, 2)
+      else:
+        total = round(cantidad * precio_unitario * random.uniform(0.5, 1.5), 2)  # Total incorrecto
+      
+      # Categoría con posibilidad de nulo
+      if random.random() > 0.1:
+        categoria_venta = categoria
+      else:
+        categoria_venta = None if random.random() > 0.5 else ""
+      
+      if not categoria_venta:
+        categoria_venta = "Sin categoría"
+      
+      # Nombre de producto con posibilidad de nulo
+      if random.random() > 0.1:
+        nombre_venta = producto_nombre
+      else:
+        nombre_venta = None if random.random() > 0.5 else ""
+      
+      if not nombre_venta:
+        nombre_venta = f"Producto_{random.randint(1000, 9999)}"
+      
+      ventas_data.append({
+        'Producto': nombre_venta,
+        'Categoría': categoria_venta,
+        'Cantidad': cantidad,
+        'Precio Unitario': precio_unitario,
+        'Total': total,
+        'Fecha/Hora': fecha_venta_str,
+        'SKU': sku
+      })
+    except Exception as e:
+      logger.warning(f"Error al generar venta {i}: {str(e)}")
+      continue
+  
+  # Crear DataFrames y guardar en Excel
+  try:
+    df_productos = pd.DataFrame(productos_data)
+    df_ventas = pd.DataFrame(ventas_data)
+    
+    # Generar nombres de archivo con timestamp
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    archivo_productos = f"productos_aleatorios_{timestamp}.xlsx"
+    archivo_ventas = f"ventas_aleatorias_{timestamp}.xlsx"
+    
+    # Guardar archivos Excel
+    df_productos.to_excel(archivo_productos, index=False)
+    df_ventas.to_excel(archivo_ventas, index=False)
+    
+    logger.info(f"Datos aleatorios generados: {len(productos_data)} productos en '{archivo_productos}', {len(ventas_data)} ventas en '{archivo_ventas}'")
+    
+    return {
+      'archivo_productos': archivo_productos,
+      'archivo_ventas': archivo_ventas,
+      'productos_generados': len(productos_data),
+      'ventas_generadas': len(ventas_data)
+    }
+  except Exception as e:
+    logger.error(f"Error al guardar archivos Excel: {str(e)}")
+    raise
+
+
 # main ------------------------------------------------------------------------------------------
 def main():
   logger.info("=== Iniciando aplicación de Gestión de Inventario ===")
@@ -429,13 +938,15 @@ def main():
   logger.info("Inventario inicializado")
   registro_ventas = RegistroVentas(inventario_obj)
   logger.info("Sistema de ventas inicializado")
+  # Cargar ventas desde archivo pickle
+  registro_ventas.cargar_ventas()
 
   root = tk.Tk()
   root.title("Gestión de Inventario")
-  root.geometry("1600x600")
+  root.geometry("2000x600")
   root.configure(bg="#f0f0f0")
-  root.resizable(width=False, height=False)
-  utl.centrar_ventana(root, 1200, 600)
+  root.resizable(width=True, height=True)
+  utl.centrar_ventana(root, 1600, 600)
 
 
   columns = ("Nombre", "Categoría", "Precio Venta", "Cantidad", "SKU", "Proveedor")
@@ -461,11 +972,12 @@ def main():
   # --- Pagination state --- IA --------------------------------------------------
   page_size = 100
   current_page = 1
+  categoria_filtro = "Todas"
 
 
   def refresh_tree():
-    nonlocal current_page, page_size
-    logger.debug(f"Refrescando árbol de productos - Página: {current_page}, Tamaño página: {page_size}")
+    nonlocal current_page, page_size, categoria_filtro
+    logger.debug(f"Refrescando árbol de productos - Página: {current_page}, Tamaño página: {page_size}, Categoría: {categoria_filtro}")
     # Clear current items
     for row in tree.get_children():
       tree.delete(row)
@@ -473,6 +985,11 @@ def main():
     # Obtain dataset length and slice for current page
     try:
       df = inventario_obj.get_dataframe()
+      
+      # Filtrar por categoría si no es "Todas"
+      if categoria_filtro != "Todas":
+        df = df[df['Categoría'] == categoria_filtro]
+      
       total = len(df)
       if total == 0:
         update_pagination_info(0, 0, 0)
@@ -496,6 +1013,11 @@ def main():
     except Exception:
       # Fallback to the in-memory list if dataframe is not ready
       prods = inventario_obj.productos
+      
+      # Filtrar por categoría si no es "Todas"
+      if categoria_filtro != "Todas":
+        prods = [p for p in prods if getattr(p, 'categoria', 'Sin categoría') == categoria_filtro]
+      
       total = len(prods)
       if total == 0:
         update_pagination_info(0, 0, 0)
@@ -540,22 +1062,34 @@ def main():
       refresh_tree()
 
   def go_next():
-    nonlocal current_page
+    nonlocal current_page, categoria_filtro
     try:
-      total = len(inventario_obj.get_dataframe())
+      df = inventario_obj.get_dataframe()
+      if categoria_filtro != "Todas":
+        df = df[df['Categoría'] == categoria_filtro]
+      total = len(df)
     except Exception:
-      total = len(inventario_obj.productos)
+      prods = inventario_obj.productos
+      if categoria_filtro != "Todas":
+        prods = [p for p in prods if getattr(p, 'categoria', 'Sin categoría') == categoria_filtro]
+      total = len(prods)
     pages = max(1, (total + page_size - 1) // page_size)
     if current_page < pages:
       current_page += 1
       refresh_tree()
 
   def go_last():
-    nonlocal current_page
+    nonlocal current_page, categoria_filtro
     try:
-      total = len(inventario_obj.get_dataframe())
+      df = inventario_obj.get_dataframe()
+      if categoria_filtro != "Todas":
+        df = df[df['Categoría'] == categoria_filtro]
+      total = len(df)
     except Exception:
-      total = len(inventario_obj.productos)
+      prods = inventario_obj.productos
+      if categoria_filtro != "Todas":
+        prods = [p for p in prods if getattr(p, 'categoria', 'Sin categoría') == categoria_filtro]
+      total = len(prods)
     pages = max(1, (total + page_size - 1) // page_size)
     current_page = pages
     refresh_tree()
@@ -583,6 +1117,13 @@ def main():
     except Exception:
       messagebox.showwarning("Aviso", "Tamaño de página inválido")
 
+  def cambiar_filtro_categoria(*_):
+    nonlocal categoria_filtro, current_page
+    categoria_filtro = var_categoria_filtro.get()
+    current_page = 1  # Resetear a la primera página al cambiar el filtro
+    logger.info(f"Filtro de categoría cambiado a: {categoria_filtro}")
+    refresh_tree()
+
   pagination_frame = tk.Frame(root)
   pagination_frame.pack(fill="x", padx=10, pady=4)
 
@@ -601,6 +1142,14 @@ def main():
 
   lbl_count = tk.Label(pagination_frame, text="Mostrando 0-0 de 0")
   lbl_count.pack(side="right")
+
+  # Filtro por categoría
+  categorias_para_filtro = ["Todas"] + cargar_categorias()
+  var_categoria_filtro = tk.StringVar(value="Todas")
+  tk.Label(pagination_frame, text="Filtrar por categoría:").pack(side="right", padx=(4,2))
+  combo_filtro_categoria = ttk.Combobox(pagination_frame, textvariable=var_categoria_filtro, values=categorias_para_filtro, state="readonly", width=15)
+  combo_filtro_categoria.pack(side="right", padx=(2,8))
+  combo_filtro_categoria.bind("<<ComboboxSelected>>", cambiar_filtro_categoria)
 
   # page size selector
   var_page_size = tk.StringVar(value=str(page_size))
@@ -1086,6 +1635,9 @@ def main():
       actualizar_lista()
       e_nueva_cat.delete(0, tk.END)
       logger.info(f"Categoría agregada por admin: {nueva_cat}")
+      # Actualizar el combobox del filtro
+      categorias_para_filtro = ["Todas"] + cargar_categorias()
+      combo_filtro_categoria['values'] = categorias_para_filtro
       messagebox.showinfo("Éxito", f"Categoría '{nueva_cat}' agregada.")
     
     btn_agregar_cat = tk.Button(frame_agregar, text="Agregar", command=agregar_categoria, bg="#4CAF50", fg="white")
@@ -1112,6 +1664,13 @@ def main():
           guardar_categorias(categorias)
           actualizar_lista()
           logger.info(f"Categoría eliminada por admin: {categoria_sel}")
+          # Actualizar el combobox del filtro
+          categorias_para_filtro = ["Todas"] + cargar_categorias()
+          combo_filtro_categoria['values'] = categorias_para_filtro
+          # Si la categoría eliminada era la seleccionada en el filtro, cambiar a "Todas"
+          if var_categoria_filtro.get() == categoria_sel:
+            var_categoria_filtro.set("Todas")
+            cambiar_filtro_categoria()
           messagebox.showinfo("Éxito", f"Categoría '{categoria_sel}' eliminada.")
     
     btn_eliminar_cat = tk.Button(frame_eliminar, text="Eliminar categoría seleccionada", command=eliminar_categoria, bg="#D80000", fg="white")
@@ -1187,6 +1746,17 @@ def main():
           f"Total: ${int(venta.total)}\n"
           f"Fecha: {venta.fecha_hora}")
         refresh_tree()
+        # Actualizar años disponibles en el filtro
+        df_temp = registro_ventas.get_dataframe()
+        anos_disponibles = ["Todos"]
+        if not df_temp.empty:
+          try:
+            df_temp['Fecha'] = pd.to_datetime(df_temp['Fecha/Hora'])
+            anos_unicos = sorted(df_temp['Fecha'].dt.year.unique(), reverse=True)
+            anos_disponibles.extend([str(a) for a in anos_unicos])
+            combo_ano['values'] = anos_disponibles
+          except:
+            pass
         refresh_tree_ventas()
         e_producto.delete(0, tk.END)
         e_cantidad.delete(0, tk.END)
@@ -1196,19 +1766,83 @@ def main():
       except Exception as e:
         logger.error(f"Error al registrar venta: {str(e)}")
         messagebox.showerror("Error", str(e))
+        e_producto.delete(0, tk.END)
+        e_cantidad.delete(0, tk.END)
+        e_precio.delete(0, tk.END)
+        lbl_total.config(text="Total: $0")
+        e_producto.focus_set()
+        return
     
     btn_registrar = tk.Button(frame_form, text="Registrar Venta", command=registrar_venta, bg="#2196F3", fg="white", font=("Arial", 10, "bold"))
     btn_registrar.grid(row=0, column=7, padx=10, pady=5)
+    
+    # Frame para filtros de fecha
+    frame_filtros = tk.Frame(ventana_ventas, bg="#e0e0e0", relief="raised", bd=2)
+    frame_filtros.pack(fill="x", padx=10, pady=5)
+    
+    tk.Label(frame_filtros, text="Filtrar ventas por fecha:", font=("Arial", 10, "bold"), bg="#e0e0e0").pack(side="left", padx=5, pady=5)
+    
+    # Filtro por año
+    tk.Label(frame_filtros, text="Año:", bg="#e0e0e0").pack(side="left", padx=5)
+    var_ano = tk.StringVar(value="Todos")
+    # Obtener años únicos de las ventas
+    df_temp = registro_ventas.get_dataframe()
+    anos_disponibles = ["Todos"]
+    if not df_temp.empty:
+      try:
+        df_temp['Fecha'] = pd.to_datetime(df_temp['Fecha/Hora'])
+        anos_unicos = sorted(df_temp['Fecha'].dt.year.unique(), reverse=True)
+        anos_disponibles.extend([str(a) for a in anos_unicos])
+      except:
+        pass
+    combo_ano = ttk.Combobox(frame_filtros, textvariable=var_ano, values=anos_disponibles, state="readonly", width=10)
+    combo_ano.pack(side="left", padx=5)
+    
+    # Filtro por mes
+    tk.Label(frame_filtros, text="Mes:", bg="#e0e0e0").pack(side="left", padx=5)
+    var_mes = tk.StringVar(value="Todos")
+    meses_disponibles = ["Todos", "01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12"]
+    combo_mes = ttk.Combobox(frame_filtros, textvariable=var_mes, values=meses_disponibles, state="readonly", width=10)
+    combo_mes.pack(side="left", padx=5)
+    
+    # Filtro por día
+    tk.Label(frame_filtros, text="Día:", bg="#e0e0e0").pack(side="left", padx=5)
+    var_dia = tk.StringVar(value="Todos")
+    dias_disponibles = ["Todos"] + [f"{i:02d}" for i in range(1, 32)]
+    combo_dia = ttk.Combobox(frame_filtros, textvariable=var_dia, values=dias_disponibles, state="readonly", width=10)
+    combo_dia.pack(side="left", padx=5)
+    
+    # Botón para limpiar filtros
+    btn_limpiar_filtros = tk.Button(frame_filtros, text="Limpiar Filtros", command=lambda: limpiar_filtros(), bg="#FF9800", fg="white", font=("Arial", 9))
+    btn_limpiar_filtros.pack(side="left", padx=10, pady=5)
+    
+    def limpiar_filtros():
+      var_ano.set("Todos")
+      var_mes.set("Todos")
+      var_dia.set("Todos")
+      refresh_tree_ventas()
     
     # Frame para tabla de ventas
     frame_tabla = tk.Frame(ventana_ventas)
     frame_tabla.pack(fill="both", expand=True, padx=10, pady=10)
     
-    columns_ventas = ("Producto", "Cantidad", "Precio Unitario", "Total", "Fecha/Hora", "SKU")
+    columns_ventas = ("Producto", "Categoría", "Cantidad", "Precio Unitario", "Total", "Fecha/Hora", "SKU")
     tree_ventas = ttk.Treeview(frame_tabla, columns=columns_ventas, show="headings", height=20)
-    for col in columns_ventas:
-      tree_ventas.heading(col, text=col)
-      tree_ventas.column(col, anchor="center", width=150)
+    # Configurar anchos de columnas
+    tree_ventas.heading("Producto", text="Producto")
+    tree_ventas.column("Producto", anchor="center", width=150)
+    tree_ventas.heading("Categoría", text="Categoría")
+    tree_ventas.column("Categoría", anchor="center", width=120)
+    tree_ventas.heading("Cantidad", text="Cantidad")
+    tree_ventas.column("Cantidad", anchor="center", width=80)
+    tree_ventas.heading("Precio Unitario", text="Precio Unitario")
+    tree_ventas.column("Precio Unitario", anchor="center", width=120)
+    tree_ventas.heading("Total", text="Total")
+    tree_ventas.column("Total", anchor="center", width=100)
+    tree_ventas.heading("Fecha/Hora", text="Fecha/Hora")
+    tree_ventas.column("Fecha/Hora", anchor="center", width=150)
+    tree_ventas.heading("SKU", text="SKU")
+    tree_ventas.column("SKU", anchor="center", width=80)
     
     scrollbar_ventas = ttk.Scrollbar(frame_tabla, orient="vertical", command=tree_ventas.yview)
     tree_ventas.configure(yscrollcommand=scrollbar_ventas.set)
@@ -1219,19 +1853,51 @@ def main():
     def refresh_tree_ventas():
       for row in tree_ventas.get_children():
         tree_ventas.delete(row)
-      df_ventas = registro_ventas.get_dataframe()
+      df_ventas = registro_ventas.get_dataframe().copy()
+      
+      # Aplicar filtros de fecha
+      if not df_ventas.empty:
+        try:
+          df_ventas['Fecha'] = pd.to_datetime(df_ventas['Fecha/Hora'])
+          
+          # Filtro por año
+          ano_filtro = var_ano.get()
+          if ano_filtro != "Todos":
+            df_ventas = df_ventas[df_ventas['Fecha'].dt.year == int(ano_filtro)]
+          
+          # Filtro por mes
+          mes_filtro = var_mes.get()
+          if mes_filtro != "Todos":
+            df_ventas = df_ventas[df_ventas['Fecha'].dt.month == int(mes_filtro)]
+          
+          # Filtro por día
+          dia_filtro = var_dia.get()
+          if dia_filtro != "Todos":
+            df_ventas = df_ventas[df_ventas['Fecha'].dt.day == int(dia_filtro)]
+        except Exception as e:
+          logger.error(f"Error al aplicar filtros de fecha: {str(e)}")
+      
+      # Mostrar ventas filtradas
       for _, r in df_ventas.iterrows():
         tree_ventas.insert("", "end", values=(
           r['Producto'], 
+          r.get('Categoría', 'Sin categoría'),
           int(r['Cantidad']), 
           f"${int(r['Precio Unitario'])}", 
           f"${int(r['Total'])}", 
           r['Fecha/Hora'], 
           int(r['SKU'])
         ))
-      # Actualizar totales
-      total_ventas = registro_ventas.calcular_total_ventas()
-      lbl_total_ventas.config(text=f"Total de ventas: ${int(total_ventas)}")
+      
+      # Actualizar totales (solo de las ventas filtradas)
+      total_ventas_filtradas = df_ventas['Total'].sum() if not df_ventas.empty else 0
+      total_registros = len(df_ventas)
+      lbl_total_ventas.config(text=f"Total de ventas (filtradas): ${int(total_ventas_filtradas)} | Registros: {total_registros}")
+    
+    # Vincular eventos de cambio en los filtros
+    combo_ano.bind("<<ComboboxSelected>>", lambda e: refresh_tree_ventas())
+    combo_mes.bind("<<ComboboxSelected>>", lambda e: refresh_tree_ventas())
+    combo_dia.bind("<<ComboboxSelected>>", lambda e: refresh_tree_ventas())
     
     # Frame inferior para totales
     frame_totales = tk.Frame(ventana_ventas)
@@ -1239,6 +1905,30 @@ def main():
     
     lbl_total_ventas = tk.Label(frame_totales, text="Total de ventas: $0", font=("Arial", 12, "bold"))
     lbl_total_ventas.pack(side="left", padx=10)
+    
+    def importar_ventas_excel():
+      """Importa ventas desde un archivo Excel"""
+      ruta_archivo = filedialog.askopenfilename(
+        title="Seleccionar archivo Excel de ventas",
+        filetypes=[("Archivos Excel", "*.xlsx *.xls"), ("Todos los archivos", "*.*")]
+      )
+      if not ruta_archivo:
+        return
+      
+      try:
+        resultado = importar_ventas_desde_excel(registro_ventas, ruta_archivo)
+        refresh_tree_ventas()
+        messagebox.showinfo("Importación Completada",
+          f"Importación de ventas completada:\n\n"
+          f"- Ventas importadas: {resultado['importadas']}\n"
+          f"- Ventas con errores: {resultado['errores']}")
+        logger.info(f"Importación de ventas completada: {resultado}")
+      except Exception as e:
+        logger.error(f"Error al importar ventas: {str(e)}")
+        messagebox.showerror("Error", f"Error al importar ventas: {str(e)}")
+    
+    btn_importar_ventas = tk.Button(frame_totales, text="Importar Ventas desde Excel", command=importar_ventas_excel, bg="#673AB7", fg="white", font=("Arial", 10, "bold"))
+    btn_importar_ventas.pack(side="right", padx=10)
     
     btn_exportar_ventas = tk.Button(frame_totales, text="Exportar Ventas a Excel", command=lambda: exportar_ventas_xls(), bg="#1D6F42", fg="white", font=("Arial", 10, "bold"))
     btn_exportar_ventas.pack(side="right", padx=10)
@@ -1278,7 +1968,181 @@ def main():
   btn_exportar = tk.Button(frame, text="Exportar a Excel", command=exportar_xls,bg="#1D6F42", fg="white", font=("Arial", 9, "bold"))
   btn_ventas = tk.Button(frame, text="Registrar Ventas", command=ventas, bg="#2196F3", fg="white", font=("Arial", 9, "bold"))
   btn_gestionar_cat = tk.Button(frame, text="Gestionar Categorías", command=gestionar_categorias, bg="#E91E63", fg="white", font=("Arial", 9, "bold"))
-  btn_salir = tk.Button(frame, text="Salir", command=root.destroy)
+  
+  def importar_inventario():
+    """Importa inventario desde un archivo Excel"""
+    ruta_archivo = filedialog.askopenfilename(
+      title="Seleccionar archivo Excel de inventario",
+      filetypes=[("Archivos Excel", "*.xlsx *.xls"), ("Todos los archivos", "*.*")]
+    )
+    if not ruta_archivo:
+      return
+    
+    try:
+      resultado = importar_inventario_desde_excel(inventario_obj, ruta_archivo)
+      refresh_tree()
+      messagebox.showinfo("Importación Completada",
+        f"Importación de inventario completada:\n\n"
+        f"- Productos importados: {resultado['importados']}\n"
+        f"- Productos duplicados (omitidos): {resultado['duplicados']}\n"
+        f"- Productos con errores: {resultado['errores']}")
+      logger.info(f"Importación de inventario completada: {resultado}")
+    except Exception as e:
+      logger.error(f"Error al importar inventario: {str(e)}")
+      messagebox.showerror("Error", f"Error al importar inventario: {str(e)}")
+  
+  def limpiar_datos():
+    """Limpia datos nulos y errores"""
+    respuesta = messagebox.askyesno("Limpiar Datos",
+      "¿Deseas limpiar datos nulos y errores?\n\n"
+      "Esto corregirá:\n"
+      "- Nombres, categorías y proveedores vacíos\n"
+      "- Precios y cantidades negativas\n"
+      "- SKUs inválidos\n"
+      "- Ventas con datos incorrectos\n\n"
+      "¿Continuar?")
+    if not respuesta:
+      return
+    
+    try:
+      resultado = limpiar_datos_nulos(inventario_obj, registro_ventas)
+      refresh_tree()
+      messagebox.showinfo("Limpieza Completada",
+        f"Limpieza de datos completada:\n\n"
+        f"- Productos corregidos: {resultado['productos_limpiados']}\n"
+        f"- Ventas corregidas: {resultado['ventas_limpiadas']}\n"
+        f"- Ventas eliminadas: {resultado['ventas_eliminadas']}")
+      logger.info(f"Limpieza de datos completada: {resultado}")
+    except Exception as e:
+      logger.error(f"Error al limpiar datos: {str(e)}")
+      messagebox.showerror("Error", f"Error al limpiar datos: {str(e)}")
+  
+  btn_importar_inventario = tk.Button(frame, text="Importar Inventario", command=importar_inventario, bg="#9C27B0", fg="white", font=("Arial", 9, "bold"))
+  btn_limpiar_datos = tk.Button(frame, text="Limpiar Datos", command=limpiar_datos, bg="#FF5722", fg="white", font=("Arial", 9, "bold"))
+  
+  def generar_datos_aleatorios():
+    """Genera datos aleatorios en archivos Excel con errores y datos nulos"""
+    # Crear ventana de diálogo para ingresar cantidades
+    dialog = tk.Toplevel(root)
+    dialog.title("Generar Datos Aleatorios")
+    dialog.geometry("450x250")
+    dialog.resizable(False, False)
+    dialog.transient(root)
+    dialog.grab_set()
+    
+    # Centrar ventana
+    dialog.update_idletasks()
+    x = (dialog.winfo_screenwidth() // 2) - (dialog.winfo_width() // 2)
+    y = (dialog.winfo_screenheight() // 2) - (dialog.winfo_height() // 2)
+    dialog.geometry(f"+{x}+{y}")
+    
+    tk.Label(dialog, text="Generar Datos Aleatorios en Excel", font=("Arial", 12, "bold")).pack(pady=10)
+    tk.Label(dialog, text="Los datos generados incluirán errores y valores nulos para pruebas.", wraplength=400).pack(pady=5)
+    tk.Label(dialog, text="Máximo: 600,000 productos (SKU máximo: 600,000)", font=("Arial", 9), fg="gray").pack(pady=2)
+    
+    frame_cantidades = tk.Frame(dialog)
+    frame_cantidades.pack(pady=15)
+    
+    tk.Label(frame_cantidades, text="Cantidad de productos:", font=("Arial", 10)).grid(row=0, column=0, padx=10, pady=8, sticky="e")
+    e_productos = tk.Entry(frame_cantidades, width=20, font=("Arial", 10))
+    e_productos.insert(0, "50")
+    e_productos.grid(row=0, column=1, padx=10, pady=8)
+    
+    tk.Label(frame_cantidades, text="Cantidad de ventas:", font=("Arial", 10)).grid(row=1, column=0, padx=10, pady=8, sticky="e")
+    e_ventas = tk.Entry(frame_cantidades, width=20, font=("Arial", 10))
+    e_ventas.insert(0, "200")
+    e_ventas.grid(row=1, column=1, padx=10, pady=8)
+    
+    def generar():
+      try:
+        cantidad_productos = int(e_productos.get())
+        cantidad_ventas = int(e_ventas.get())
+        
+        if cantidad_productos <= 0 or cantidad_ventas <= 0:
+          messagebox.showerror("Error", "Las cantidades deben ser mayores que cero.")
+          return
+        
+        if cantidad_productos > 600000:
+          messagebox.showerror("Error", f"La cantidad máxima de productos es 600,000.\nSe solicitó: {cantidad_productos:,}")
+          return
+        
+        dialog.destroy()
+        
+        # Mostrar mensaje de progreso
+        messagebox.showinfo("Generando", 
+          f"Generando {cantidad_productos:,} productos y {cantidad_ventas:,} ventas...\n\n"
+          f"Esto puede tomar varios minutos para grandes cantidades.\n"
+          f"Por favor, espere...")
+        
+        resultado = generar_datos_aleatorios_excel(cantidad_productos, cantidad_ventas)
+        
+        messagebox.showinfo("Generación Completada",
+          f"Archivos Excel generados exitosamente:\n\n"
+          f"📁 {resultado['archivo_productos']}\n"
+          f"   - {resultado['productos_generados']:,} productos generados\n\n"
+          f"📁 {resultado['archivo_ventas']}\n"
+          f"   - {resultado['ventas_generadas']:,} ventas generadas\n\n"
+          f"Nota: Los archivos contienen errores y datos nulos intencionales\n"
+          f"para poder probar la función de limpieza de datos.")
+        logger.info(f"Datos aleatorios generados exitosamente: {resultado}")
+      except ValueError as e:
+        if "máximo" in str(e).lower():
+          messagebox.showerror("Error", str(e))
+        else:
+          messagebox.showerror("Error", "Por favor ingrese números válidos.")
+      except Exception as e:
+        logger.error(f"Error al generar datos aleatorios: {str(e)}")
+        messagebox.showerror("Error", f"Error al generar datos: {str(e)}")
+    
+    frame_botones = tk.Frame(dialog)
+    frame_botones.pack(pady=20)
+    
+    tk.Button(frame_botones, text="Generar", command=generar, bg="#4CAF50", fg="white", font=("Arial", 10, "bold"), width=12).pack(side="left", padx=5)
+    tk.Button(frame_botones, text="Cancelar", command=dialog.destroy, bg="#f44336", fg="white", font=("Arial", 10, "bold"), width=12).pack(side="left", padx=5)
+    
+    e_productos.focus_set()
+    e_productos.select_range(0, tk.END)
+    dialog.bind("<Return>", lambda e: generar())
+    dialog.bind("<Escape>", lambda e: dialog.destroy())
+  
+  btn_generar_datos = tk.Button(frame, text="Generar Datos Aleatorios", command=generar_datos_aleatorios, bg="#FF9800", fg="white", font=("Arial", 9, "bold"))
+  
+  def cerrar_sesion():
+    """Cierra la sesión actual y vuelve al login"""
+    try:
+      username = current_user.username if hasattr(current_user, 'username') else 'Usuario'
+      logger.info(f"Usuario {username} cerró sesión")
+    except:
+      logger.info("Sesión cerrada")
+    
+    # Confirmar cierre de sesión
+    respuesta = messagebox.askyesno("Cerrar Sesión", "¿Estás seguro de que deseas cerrar sesión?")
+    if not respuesta:
+      return
+    
+    # Cerrar todas las ventanas secundarias abiertas
+    for widget in root.winfo_children():
+      if isinstance(widget, tk.Toplevel):
+        try:
+          widget.destroy()
+        except:
+          pass
+    
+    # Cerrar ventana principal
+    root.quit()
+    root.destroy()
+    
+    # Reiniciar aplicación con nuevo login
+    try:
+      import sys
+      import os
+      python = sys.executable
+      os.execl(python, python, *sys.argv)
+    except Exception as e:
+      logger.error(f"Error al reiniciar aplicación: {str(e)}")
+      messagebox.showinfo("Sesión cerrada", "Has cerrado sesión exitosamente. Por favor, reinicia la aplicación manualmente.")
+  
+  btn_logout = tk.Button(frame, text="Cerrar Sesión", command=cerrar_sesion, bg="#F44336", fg="white", font=("Arial", 9, "bold"))
 
   # Botón de descarga de log en ubicación discreta (esquina inferior derecha, casi inaccesible)
   btn_descargar_log = tk.Button(
@@ -1310,7 +2174,7 @@ def main():
     btn_descargar_log.config(state='disabled')
     btn_gestionar_cat.config(state='disabled')
 
-  for w in (btn_agregar, btn_eliminar, btn_actualizar, btn_mostrar, btn_entrada, btn_salida, btn_reporte, btn_buscar, btn_exportar, btn_ventas, btn_gestionar_cat, btn_salir):
+  for w in (btn_agregar, btn_eliminar, btn_actualizar, btn_mostrar, btn_entrada, btn_salida, btn_reporte, btn_buscar, btn_exportar, btn_ventas, btn_gestionar_cat, btn_importar_inventario, btn_generar_datos, btn_limpiar_datos, btn_logout):
     w.pack(side="left", padx=5, pady=5)
 
   logger.info("Interfaz gráfica inicializada - Iniciando loop principal")
