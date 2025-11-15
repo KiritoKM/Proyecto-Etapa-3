@@ -1,0 +1,16 @@
+2025-11-14 22:09:34 - __main__ - INFO - Usuario autenticado: lucio - Rol: user
+2025-11-14 22:09:34 - __main__ - INFO - === Iniciando aplicación de Gestión de Inventario ===
+2025-11-14 22:09:34 - __main__ - INFO - Inventario inicializado
+2025-11-14 22:09:34 - __main__ - INFO - Sistema de ventas inicializado
+2025-11-14 22:09:34 - __main__ - INFO - Inventario cargado desde archivo: 1 productos
+2025-11-14 22:09:35 - __main__ - INFO - Interfaz gráfica inicializada - Iniciando loop principal
+2025-11-14 22:09:41 - __main__ - INFO - Abriendo formulario para agregar producto
+2025-11-14 22:09:41 - __main__ - INFO - Categorías cargadas: 8 categorías disponibles
+2025-11-14 22:09:47 - __main__ - INFO - === Aplicación cerrada ===
+2025-11-14 22:12:35 - __main__ - INFO - Usuario autenticado: lucio - Rol: user
+2025-11-14 22:12:35 - __main__ - INFO - === Iniciando aplicación de Gestión de Inventario ===
+2025-11-14 22:12:35 - __main__ - INFO - Inventario inicializado
+2025-11-14 22:12:35 - __main__ - INFO - Sistema de ventas inicializado
+2025-11-14 22:12:36 - __main__ - INFO - Inventario cargado desde archivo: 1 productos
+2025-11-14 22:12:36 - __main__ - INFO - Interfaz gráfica inicializada - Iniciando loop principal
+2025-11-14 22:13:00 - __main__ - INFO - === Aplicación cerrada ===

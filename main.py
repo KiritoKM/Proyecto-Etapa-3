@@ -11,6 +11,7 @@ import faker as fk
 import pickle
 import util.generic as utl
 
+
 # Configurar logging con archivo
 log_filename = f"inventario_log_{datetime.now().strftime('%Y%m%d')}.log"
 logging.basicConfig(
@@ -52,14 +53,15 @@ else:
 
 
 class Producto:
-  def __init__(self, nombre, precio_compra, precio_venta, cantidad, sku, proveedor):
+  def __init__(self, nombre, precio_compra, precio_venta, cantidad, sku, proveedor, categoria="Sin categoría"):
     self.nombre = nombre.capitalize()
     self.precio_compra = float(precio_compra)
     self.precio_venta = float(precio_venta)
     self.cantidad = int(cantidad)
     self.sku = int(sku)
     self.proveedor = proveedor.capitalize()
-    logger.info(f"Producto creado: {self.nombre} (SKU: {self.sku}) - Precio venta: ${int(self.precio_venta)} - Cantidad: {self.cantidad}")
+    self.categoria = categoria
+    logger.info(f"Producto creado: {self.nombre} (SKU: {self.sku}) - Categoría: {self.categoria} - Precio venta: ${int(self.precio_venta)} - Cantidad: {self.cantidad}")
 
   def actualizar_stock(self, nueva_cantidad):
     antigua_cantidad = self.cantidad
@@ -76,22 +78,50 @@ class Producto:
 
   def obtener_info(self):
     return (
-      f"Nombre: {self.nombre} || Precio: ${int(self.precio_venta)} || "
+      f"Nombre: {self.nombre} || Categoría: {self.categoria} || Precio: ${int(self.precio_venta)} || "
       f"Cantidad: {self.cantidad} || Codigo: {self.sku} || Proveedor: {self.proveedor}"
     )
 
+
+# Sistema de gestión de categorías
+def cargar_categorias():
+  """Carga las categorías desde archivo pickle"""
+  try:
+    with open("categorias.pkl", "rb") as f:
+      categorias = pickle.load(f)
+    logger.info(f"Categorías cargadas: {len(categorias)} categorías disponibles")
+    return categorias
+  except FileNotFoundError:
+    # Categorías por defecto
+    categorias_default = ["Electrónica", "Ropa", "Alimentos", "Hogar", "Deportes", "Libros", "Juguetes", "Sin categoría"]
+    guardar_categorias(categorias_default)
+    logger.info("Categorías por defecto creadas")
+    return categorias_default
+  except Exception as e:
+    logger.error(f"Error al cargar categorías: {str(e)}")
+    return ["Sin categoría"]
+
+def guardar_categorias(categorias):
+  """Guarda las categorías en archivo pickle"""
+  try:
+    with open("categorias.pkl", "wb") as f:
+      pickle.dump(categorias, f)
+    logger.info(f"Categorías guardadas: {len(categorias)} categorías")
+  except Exception as e:
+    logger.error(f"Error al guardar categorías: {str(e)}")
 
 class inventario:
   def __init__(self):
     self.productos = []
     self.df = pd.DataFrame(columns=[
-      'Nombre', 'PrecioCompra', 'PrecioVenta', 'Cantidad', 'SKU', 'Proveedor'
+      'Nombre', 'Categoría', 'PrecioCompra', 'PrecioVenta', 'Cantidad', 'SKU', 'Proveedor'
     ])
 
   def sincronizar_data(self):
     rows = [
       {
         'Nombre': p.nombre,
+        'Categoría': p.categoria,
         'PrecioCompra': p.precio_compra,
         'PrecioVenta': p.precio_venta,
         'Cantidad': p.cantidad,
@@ -101,7 +131,7 @@ class inventario:
       for p in self.productos
     ]
     self.df = pd.DataFrame(rows, columns=[
-      'Nombre', 'PrecioCompra', 'PrecioVenta', 'Cantidad', 'SKU', 'Proveedor'
+      'Nombre', 'Categoría', 'PrecioCompra', 'PrecioVenta', 'Cantidad', 'SKU', 'Proveedor'
     ])
   
   def guardar_inventario(self):
@@ -119,9 +149,10 @@ class inventario:
 
 
   # --- Funciones en Tkinter---
-  def agregar_producto_manual(self, nombre, precio_compra, precio_venta, cantidad, proveedor):
+  def agregar_producto_manual(self, nombre, precio_compra, precio_venta, cantidad, proveedor, categoria="Sin categoría"):
     nombre = str(nombre).strip().capitalize()
     proveedor = str(proveedor).strip().capitalize()
+    categoria = str(categoria).strip()
     if not nombre:
       raise ValueError("El nombre del producto no puede estar vacío.")
     if any(producto.nombre == nombre for producto in self.productos):
@@ -141,14 +172,16 @@ class inventario:
       raise ValueError("La cantidad debe ser mayor que cero.")
     if not proveedor:
       raise ValueError("El proveedor del producto no puede estar vacío.")
+    if not categoria:
+      categoria = "Sin categoría"
     sku = random.randint(100000, 999999)
     while any(producto.sku == sku for producto in self.productos):
       sku = random.randint(100000, 999999)
-    producto = Producto(nombre, precio_compra, precio_venta, cantidad, sku, proveedor)
+    producto = Producto(nombre, precio_compra, precio_venta, cantidad, sku, proveedor, categoria)
     self.productos.append(producto)
     self.sincronizar_data()
     self.guardar_inventario()
-    logger.info(f"Producto agregado al inventario: {producto.nombre} (SKU: {producto.sku}) - Total productos: {len(self.productos)}")
+    logger.info(f"Producto agregado al inventario: {producto.nombre} (SKU: {producto.sku}) - Categoría: {categoria} - Total productos: {len(self.productos)}")
     return producto
 
   def buscar_producto_por_sku(self, sku):
@@ -204,7 +237,7 @@ class inventario:
         logger.info(f"Producto eliminado: {nombre} (SKU: {producto.sku}) - Total productos: {len(self.productos)}")
         return producto
 
-  def actualizar_producto(self, nombre, nuevo_precio_compra, nuevo_precio_venta, nueva_cantidad):
+  def actualizar_producto(self, nombre, nuevo_precio_compra, nuevo_precio_venta, nueva_cantidad, nueva_categoria=None):
     nombre = str(nombre).strip().capitalize()
     try:
       nuevo_precio_compra = float(nuevo_precio_compra)
@@ -224,9 +257,11 @@ class inventario:
     producto.precio_compra = nuevo_precio_compra
     producto.precio_venta = nuevo_precio_venta
     producto.actualizar_stock(nueva_cantidad)
+    if nueva_categoria:
+      producto.categoria = nueva_categoria
     self.sincronizar_data()
     self.guardar_inventario()
-    logger.info(f"Producto actualizado: {nombre} - Precio compra: ${int(nuevo_precio_compra)}, Precio venta: ${int(nuevo_precio_venta)}, Cantidad: {nueva_cantidad}")
+    logger.info(f"Producto actualizado: {nombre} - Precio compra: ${int(nuevo_precio_compra)}, Precio venta: ${int(nuevo_precio_venta)}, Cantidad: {nueva_cantidad}, Categoría: {producto.categoria}")
     return producto
 
   def registrar_entrada_producto(self, nombre, cantidad_entrada):
@@ -397,13 +432,13 @@ def main():
 
   root = tk.Tk()
   root.title("Gestión de Inventario")
-  root.geometry("1200x600")
+  root.geometry("1600x600")
   root.configure(bg="#f0f0f0")
   root.resizable(width=False, height=False)
   utl.centrar_ventana(root, 1200, 600)
 
 
-  columns = ("Nombre", "Precio Venta", "Cantidad", "SKU", "Proveedor")
+  columns = ("Nombre", "Categoría", "Precio Venta", "Cantidad", "SKU", "Proveedor")
   tree = ttk.Treeview(root, columns=columns, show="headings", height=15)
   for col in columns:
     tree.heading(col, text=col)
@@ -455,7 +490,7 @@ def main():
       for _, r in page_df.iterrows():
         tree.insert(
           "", "end",
-          values=(r['Nombre'], f"${int(r['PrecioVenta'])}", int(r['Cantidad']), int(r['SKU']), r['Proveedor'])
+          values=(r['Nombre'], r.get('Categoría', 'Sin categoría'), f"${int(r['PrecioVenta'])}", int(r['Cantidad']), int(r['SKU']), r['Proveedor'])
         )
       update_pagination_info(start + 1, min(end, total), total)
     except Exception:
@@ -476,7 +511,7 @@ def main():
       for p in prods[start:end]:
         tree.insert(
           "", "end",
-          values=(p.nombre, f"${int(p.precio_venta)}", p.cantidad, p.sku, p.proveedor)
+          values=(p.nombre, getattr(p, 'categoria', 'Sin categoría'), f"${int(p.precio_venta)}", p.cantidad, p.sku, p.proveedor)
         )
       update_pagination_info(start + 1, min(end, total), total)
     
@@ -593,7 +628,7 @@ def main():
     logger.info("Abriendo formulario para agregar producto")
     form = tk.Toplevel(root)
     form.title("Agregar producto")
-    form.geometry("380x280")
+    form.geometry("380x320")
     form.resizable(False, False)
 
     tk.Label(form, text="Nombre:").grid(row=0, column=0, sticky="e", padx=6, pady=6)
@@ -616,12 +651,21 @@ def main():
     e_proveedor = tk.Entry(form, width=30)
     e_proveedor.grid(row=4, column=1, padx=6, pady=6)
 
+    tk.Label(form, text="Categoría:").grid(row=5, column=0, sticky="e", padx=6, pady=6)
+    categorias_disponibles = cargar_categorias()
+    combo_categoria = ttk.Combobox(form, values=categorias_disponibles, state="readonly", width=27)
+    combo_categoria.grid(row=5, column=1, padx=6, pady=6)
+    if categorias_disponibles:
+      combo_categoria.current(0)
+
     def clear_fields():
       e_nombre.delete(0, tk.END)
       e_precio_compra.delete(0, tk.END)
       e_precio_venta.delete(0, tk.END)
       e_cantidad.delete(0, tk.END)
       e_proveedor.delete(0, tk.END)
+      if categorias_disponibles:
+        combo_categoria.current(0)
       e_nombre.focus_set()
 
     def add_and_option(close_after=False):
@@ -631,8 +675,9 @@ def main():
         precio_venta = e_precio_venta.get()
         cantidad = e_cantidad.get()
         proveedor = e_proveedor.get()
+        categoria = combo_categoria.get() if combo_categoria.get() else "Sin categoría"
         producto = inventario_obj.agregar_producto_manual(
-          nombre, precio_compra, precio_venta, cantidad, proveedor
+          nombre, precio_compra, precio_venta, cantidad, proveedor, categoria
         )
         logger.info(f"Producto agregado exitosamente desde GUI: {producto.nombre} (SKU: {producto.sku})")
         messagebox.showinfo("Éxito", f"Producto '{producto.nombre}' agregado (SKU: {producto.sku})")
@@ -646,7 +691,7 @@ def main():
         messagebox.showerror("Error", str(exc))
 
     btn_frame = tk.Frame(form)
-    btn_frame.grid(row=5, column=0, columnspan=2, pady=10)
+    btn_frame.grid(row=6, column=0, columnspan=2, pady=10)
 
     btn_add_new = tk.Button(btn_frame, text="Agregar y nuevo", width=14, command=lambda: add_and_option(False))
     btn_add_close = tk.Button(btn_frame, text="Agregar y cerrar", width=14, command=lambda: add_and_option(True))
@@ -727,11 +772,20 @@ def main():
     e_cantidad = tk.Entry(form, width=30)
     e_cantidad.grid(row=3, column=1, padx=6, pady=6)
 
+    tk.Label(form, text="Nueva categoría:").grid(row=4, column=0, sticky="e", padx=6, pady=6)
+    categorias_disponibles_upd = cargar_categorias()
+    combo_categoria_upd = ttk.Combobox(form, values=categorias_disponibles_upd, state="readonly", width=27)
+    combo_categoria_upd.grid(row=4, column=1, padx=6, pady=6)
+    if categorias_disponibles_upd:
+      combo_categoria_upd.current(0)
+
     def clear_fields():
       e_nombre.delete(0, tk.END)
       e_precio_compra.delete(0, tk.END)
       e_precio_venta.delete(0, tk.END)
       e_cantidad.delete(0, tk.END)
+      if categorias_disponibles_upd:
+        combo_categoria_upd.current(0)
       e_nombre.focus_set()
 
     def do_update(close_after=False):
@@ -743,7 +797,8 @@ def main():
         nuevo_pc = e_precio_compra.get()
         nuevo_pv = e_precio_venta.get()
         nueva_cant = e_cantidad.get()
-        producto = inventario_obj.actualizar_producto(nombre, nuevo_pc, nuevo_pv, nueva_cant)
+        nueva_cat = combo_categoria_upd.get() if combo_categoria_upd.get() else None
+        producto = inventario_obj.actualizar_producto(nombre, nuevo_pc, nuevo_pv, nueva_cant, nueva_cat)
         logger.info(f"Producto actualizado exitosamente desde GUI: {producto.nombre} (SKU: {producto.sku})")
         messagebox.showinfo("Actualizar", f"Producto '{producto.nombre}' actualizado.")
         refresh_tree()
@@ -756,7 +811,7 @@ def main():
         messagebox.showerror("Error", str(e))
 
     btn_frame = tk.Frame(form)
-    btn_frame.grid(row=4, column=0, columnspan=2, pady=8)
+    btn_frame.grid(row=5, column=0, columnspan=2, pady=8)
     tk.Button(btn_frame, text="Actualizar y nuevo", width=16, command=lambda: do_update(False)).pack(side="left", padx=4)
     tk.Button(btn_frame, text="Actualizar y cerrar", width=16, command=lambda: do_update(True)).pack(side="left", padx=4)
     tk.Button(btn_frame, text="Cancelar", width=10, command=form.destroy).pack(side="left", padx=4)
@@ -977,6 +1032,94 @@ def main():
       logger.error(f"Error al descargar log: {str(e)}")
       messagebox.showerror("Error", f"No se pudo descargar el log: {str(e)}")
 
+  def gestionar_categorias():
+    """Permite al administrador gestionar las categorías (solo admin)"""
+    logger.info("Abriendo ventana de gestión de categorías")
+    win_cat = tk.Toplevel(root)
+    win_cat.title("Gestión de Categorías (Solo Administrador)")
+    win_cat.geometry("500x400")
+    win_cat.resizable(False, False)
+    
+    # Frame para lista de categorías
+    frame_lista = tk.Frame(win_cat)
+    frame_lista.pack(fill="both", expand=True, padx=10, pady=10)
+    
+    tk.Label(frame_lista, text="Categorías disponibles:", font=("Arial", 10, "bold")).pack(anchor="w", pady=(0, 5))
+    
+    frame_listbox = tk.Frame(frame_lista)
+    frame_listbox.pack(fill="both", expand=True)
+    
+    listbox_cat = tk.Listbox(frame_listbox, height=12, font=("Arial", 9))
+    listbox_cat.pack(side="left", fill="both", expand=True)
+    
+    scrollbar_cat = tk.Scrollbar(frame_listbox, orient="vertical", command=listbox_cat.yview)
+    scrollbar_cat.pack(side="right", fill="y")
+    listbox_cat.config(yscrollcommand=scrollbar_cat.set)
+    
+    def actualizar_lista():
+      categorias = cargar_categorias()
+      listbox_cat.delete(0, tk.END)
+      for cat in categorias:
+        listbox_cat.insert(tk.END, cat)
+    
+    actualizar_lista()
+    
+    # Frame para agregar nueva categoría
+    frame_agregar = tk.Frame(win_cat)
+    frame_agregar.pack(fill="x", padx=10, pady=5)
+    
+    tk.Label(frame_agregar, text="Nueva categoría:").pack(side="left", padx=5)
+    e_nueva_cat = tk.Entry(frame_agregar, width=25)
+    e_nueva_cat.pack(side="left", padx=5)
+    
+    def agregar_categoria():
+      nueva_cat = e_nueva_cat.get().strip()
+      if not nueva_cat:
+        messagebox.showwarning("Aviso", "Ingrese un nombre para la categoría.")
+        return
+      categorias = cargar_categorias()
+      if nueva_cat in categorias:
+        messagebox.showwarning("Aviso", f"La categoría '{nueva_cat}' ya existe.")
+        return
+      categorias.append(nueva_cat)
+      guardar_categorias(categorias)
+      actualizar_lista()
+      e_nueva_cat.delete(0, tk.END)
+      logger.info(f"Categoría agregada por admin: {nueva_cat}")
+      messagebox.showinfo("Éxito", f"Categoría '{nueva_cat}' agregada.")
+    
+    btn_agregar_cat = tk.Button(frame_agregar, text="Agregar", command=agregar_categoria, bg="#4CAF50", fg="white")
+    btn_agregar_cat.pack(side="left", padx=5)
+    
+    # Frame para eliminar categoría
+    frame_eliminar = tk.Frame(win_cat)
+    frame_eliminar.pack(fill="x", padx=10, pady=5)
+    
+    def eliminar_categoria():
+      seleccion = listbox_cat.curselection()
+      if not seleccion:
+        messagebox.showwarning("Aviso", "Seleccione una categoría para eliminar.")
+        return
+      categoria_sel = listbox_cat.get(seleccion[0])
+      if categoria_sel == "Sin categoría":
+        messagebox.showwarning("Aviso", "No se puede eliminar la categoría 'Sin categoría'.")
+        return
+      respuesta = messagebox.askyesno("Confirmar", f"¿Está seguro de eliminar la categoría '{categoria_sel}'?")
+      if respuesta:
+        categorias = cargar_categorias()
+        if categoria_sel in categorias:
+          categorias.remove(categoria_sel)
+          guardar_categorias(categorias)
+          actualizar_lista()
+          logger.info(f"Categoría eliminada por admin: {categoria_sel}")
+          messagebox.showinfo("Éxito", f"Categoría '{categoria_sel}' eliminada.")
+    
+    btn_eliminar_cat = tk.Button(frame_eliminar, text="Eliminar categoría seleccionada", command=eliminar_categoria, bg="#D80000", fg="white")
+    btn_eliminar_cat.pack(side="left", padx=5)
+    
+    btn_cerrar_cat = tk.Button(frame_eliminar, text="Cerrar", command=win_cat.destroy)
+    btn_cerrar_cat.pack(side="right", padx=5)
+
   def ventas():
     logger.info("Abriendo ventana de registro de ventas")
     ventana_ventas = tk.Toplevel(root)
@@ -1124,7 +1267,7 @@ def main():
   # Botones
   frame = tk.Frame(root)
   frame.pack(fill="x", padx=11, pady=5)
-  btn_agregar = tk.Button(frame, text="Agregar", command=agregar, bg="#69F36E", fg="black", font=("Arial", 9, "bold"))
+  btn_agregar = tk.Button(frame, text="Agregar", command=agregar, bg="#69F36E", fg="white", font=("Arial", 9, "bold"))
   btn_eliminar = tk.Button(frame, text="Eliminar", command=eliminar, bg="#D80000", fg="white", font=("Arial", 9, "bold"))
   btn_actualizar = tk.Button(frame, text="Actualizar", command=actualizar, bg="#6E03FA", fg="white", font=("Arial", 9, "bold"))
   btn_mostrar = tk.Button(frame, text="Refrescar", command=refresh_tree)
@@ -1134,6 +1277,7 @@ def main():
   btn_buscar = tk.Button(frame, text="Buscar por SKU", command=buscar_sku, bg="#00ACC1", fg="white", font=("Arial", 9, "bold"))
   btn_exportar = tk.Button(frame, text="Exportar a Excel", command=exportar_xls,bg="#1D6F42", fg="white", font=("Arial", 9, "bold"))
   btn_ventas = tk.Button(frame, text="Registrar Ventas", command=ventas, bg="#2196F3", fg="white", font=("Arial", 9, "bold"))
+  btn_gestionar_cat = tk.Button(frame, text="Gestionar Categorías", command=gestionar_categorias, bg="#E91E63", fg="white", font=("Arial", 9, "bold"))
   btn_salir = tk.Button(frame, text="Salir", command=root.destroy)
 
   # Botón de descarga de log en ubicación discreta (esquina inferior derecha, casi inaccesible)
@@ -1158,13 +1302,15 @@ def main():
       btn_eliminar.config(state='disabled')
       btn_actualizar.config(state='disabled')
       btn_descargar_log.config(state='disabled')
+      btn_gestionar_cat.config(state='disabled')
   except NameError:
     # current_user no definido -> comportarse como no autenticado (deshabilitar admin)
     btn_eliminar.config(state='disabled')
     btn_actualizar.config(state='disabled')
     btn_descargar_log.config(state='disabled')
+    btn_gestionar_cat.config(state='disabled')
 
-  for w in (btn_agregar, btn_eliminar, btn_actualizar, btn_mostrar, btn_entrada, btn_salida, btn_reporte, btn_buscar, btn_exportar, btn_ventas, btn_salir):
+  for w in (btn_agregar, btn_eliminar, btn_actualizar, btn_mostrar, btn_entrada, btn_salida, btn_reporte, btn_buscar, btn_exportar, btn_ventas, btn_gestionar_cat, btn_salir):
     w.pack(side="left", padx=5, pady=5)
 
   logger.info("Interfaz gráfica inicializada - Iniciando loop principal")
