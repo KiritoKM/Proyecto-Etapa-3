@@ -10,6 +10,9 @@ from datetime import datetime
 import faker as fk
 import pickle
 import util.generic as utl
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import numpy as np
 
 
 # Configurar logging con archivo
@@ -1952,22 +1955,853 @@ def main():
     refresh_tree_ventas()
     e_producto.focus_set()
 
+  def mostrar_graficas():
+    """Muestra una ventana con opciones para generar diferentes gráficas de inventario y ventas"""
+    logger.info("Abriendo ventana de gráficas")
+    ventana_graficas = tk.Toplevel(root)
+    ventana_graficas.title("Gráficas de Inventario y Ventas")
+    ventana_graficas.geometry("800x600")
+    ventana_graficas.configure(bg="#f0f0f0")
+    
+    # Frame para selección de gráficas
+    frame_seleccion = tk.Frame(ventana_graficas, bg="#f0f0f0")
+    frame_seleccion.pack(fill="x", padx=10, pady=10)
+    
+    tk.Label(frame_seleccion, text="Seleccione el tipo de gráfica:", font=("Arial", 12, "bold"), bg="#f0f0f0").pack(pady=10)
+    
+    # Frame para botones de gráficas de inventario
+    frame_inventario = tk.LabelFrame(frame_seleccion, text="Gráficas de Inventario", font=("Arial", 10, "bold"), bg="#f0f0f0")
+    frame_inventario.pack(fill="x", padx=10, pady=5)
+    
+    def grafica_productos_por_categoria():
+      """Gráfica de distribución de productos por categoría"""
+      try:
+        df = inventario_obj.get_dataframe()
+        if df.empty:
+          messagebox.showwarning("Aviso", "No hay productos en el inventario para graficar.")
+          return
+        
+        categoria_counts = df['Categoría'].value_counts()
+        
+        fig, ax = plt.subplots(figsize=(10, 6))
+        ax.pie(categoria_counts.values, labels=categoria_counts.index, autopct='%1.1f%%', startangle=90)
+        ax.set_title('Distribución de Productos por Categoría', fontsize=14, fontweight='bold')
+        plt.tight_layout()
+        
+        ventana_graf = tk.Toplevel(ventana_graficas)
+        ventana_graf.title("Productos por Categoría")
+        canvas = FigureCanvasTkAgg(fig, ventana_graf)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill="both", expand=True)
+        logger.info("Gráfica de productos por categoría generada")
+      except Exception as e:
+        logger.error(f"Error al generar gráfica de productos por categoría: {str(e)}")
+        messagebox.showerror("Error", f"Error al generar gráfica: {str(e)}")
+    
+    def grafica_stock_por_categoria():
+      """Gráfica de stock total por categoría"""
+      try:
+        df = inventario_obj.get_dataframe()
+        if df.empty:
+          messagebox.showwarning("Aviso", "No hay productos en el inventario para graficar.")
+          return
+        
+        stock_por_categoria = df.groupby('Categoría')['Cantidad'].sum().sort_values(ascending=False)
+        
+        fig, ax = plt.subplots(figsize=(12, 6))
+        ax.bar(stock_por_categoria.index, stock_por_categoria.values, color='steelblue')
+        ax.set_title('Stock Total por Categoría', fontsize=14, fontweight='bold')
+        ax.set_xlabel('Categoría', fontsize=12)
+        ax.set_ylabel('Cantidad Total', fontsize=12)
+        ax.tick_params(axis='x', rotation=45)
+        plt.tight_layout()
+        
+        ventana_graf = tk.Toplevel(ventana_graficas)
+        ventana_graf.title("Stock por Categoría")
+        canvas = FigureCanvasTkAgg(fig, ventana_graf)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill="both", expand=True)
+        logger.info("Gráfica de stock por categoría generada")
+      except Exception as e:
+        logger.error(f"Error al generar gráfica de stock por categoría: {str(e)}")
+        messagebox.showerror("Error", f"Error al generar gráfica: {str(e)}")
+    
+    def grafica_valor_por_categoria():
+      """Gráfica de valor del inventario por categoría"""
+      try:
+        df = inventario_obj.get_dataframe()
+        if df.empty:
+          messagebox.showwarning("Aviso", "No hay productos en el inventario para graficar.")
+          return
+        
+        df['ValorTotal'] = df['PrecioVenta'] * df['Cantidad']
+        valor_por_categoria = df.groupby('Categoría')['ValorTotal'].sum().sort_values(ascending=False)
+        
+        # Convertir valores a millones de pesos
+        valor_por_categoria_millones = valor_por_categoria / 1000000
+        
+        fig, ax = plt.subplots(figsize=(12, 6))
+        ax.bar(valor_por_categoria_millones.index, valor_por_categoria_millones.values, color='green')
+        ax.set_title('Valor del Inventario por Categoría', fontsize=14, fontweight='bold')
+        ax.set_xlabel('Categoría', fontsize=12)
+        ax.set_ylabel('Valor Total (Millones de $)', fontsize=12)
+        ax.tick_params(axis='x', rotation=45)
+        # Formatear el eje Y 
+        ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{x:.2f}'))
+        plt.tight_layout()
+        
+        ventana_graf = tk.Toplevel(ventana_graficas)
+        ventana_graf.title("Valor por Categoría")
+        canvas = FigureCanvasTkAgg(fig, ventana_graf)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill="both", expand=True)
+        logger.info("Gráfica de valor por categoría generada")
+      except Exception as e:
+        logger.error(f"Error al generar gráfica de valor por categoría: {str(e)}")
+        messagebox.showerror("Error", f"Error al generar gráfica: {str(e)}")
+    
+    def grafica_top_productos_stock():
+      """Gráfica de top 10 productos con mayor stock"""
+      try:
+        df = inventario_obj.get_dataframe()
+        if df.empty:
+          messagebox.showwarning("Aviso", "No hay productos en el inventario para graficar.")
+          return
+        
+        top_productos = df.nlargest(10, 'Cantidad')[['Nombre', 'Cantidad']]
+        
+        fig, ax = plt.subplots(figsize=(12, 6))
+        ax.barh(top_productos['Nombre'], top_productos['Cantidad'], color='orange')
+        ax.set_title('Top 10 Productos con Mayor Stock', fontsize=14, fontweight='bold')
+        ax.set_xlabel('Cantidad', fontsize=12)
+        ax.set_ylabel('Producto', fontsize=12)
+        plt.tight_layout()
+        
+        ventana_graf = tk.Toplevel(ventana_graficas)
+        ventana_graf.title("Top Productos por Stock")
+        canvas = FigureCanvasTkAgg(fig, ventana_graf)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill="both", expand=True)
+        logger.info("Gráfica de top productos por stock generada")
+      except Exception as e:
+        logger.error(f"Error al generar gráfica de top productos: {str(e)}")
+        messagebox.showerror("Error", f"Error al generar gráfica: {str(e)}")
+    
+    tk.Button(frame_inventario, text="Productos por Categoría (Pastel)", command=grafica_productos_por_categoria, 
+              bg="#4CAF50", fg="white", font=("Arial", 9, "bold"), width=30).pack(pady=3, padx=5)
+    tk.Button(frame_inventario, text="Stock por Categoría", command=grafica_stock_por_categoria, 
+              bg="#2196F3", fg="white", font=("Arial", 9, "bold"), width=30).pack(pady=3, padx=5)
+    tk.Button(frame_inventario, text="Valor del Inventario por Categoría", command=grafica_valor_por_categoria, 
+              bg="#FF9800", fg="white", font=("Arial", 9, "bold"), width=30).pack(pady=3, padx=5)
+    tk.Button(frame_inventario, text="Top 10 Productos con Mayor Stock", command=grafica_top_productos_stock, 
+              bg="#9C27B0", fg="white", font=("Arial", 9, "bold"), width=30).pack(pady=3, padx=5)
+    
+    # Frame para botones de gráficas de ventas
+    frame_ventas = tk.LabelFrame(frame_seleccion, text="Gráficas de Ventas", font=("Arial", 10, "bold"), bg="#f0f0f0")
+    frame_ventas.pack(fill="x", padx=10, pady=5)
+    
+    def grafica_ventas_por_producto():
+      """Gráfica de ventas totales por producto"""
+      try:
+        df_ventas = registro_ventas.get_dataframe()
+        if df_ventas.empty:
+          messagebox.showwarning("Aviso", "No hay ventas registradas para graficar.")
+          return
+        
+        ventas_por_producto = df_ventas.groupby('Producto')['Total'].sum().sort_values(ascending=False).head(10)
+        
+        fig, ax = plt.subplots(figsize=(12, 6))
+        ax.bar(ventas_por_producto.index, ventas_por_producto.values, color='coral')
+        ax.set_title('Top 10 Productos por Ventas Totales', fontsize=14, fontweight='bold')
+        ax.set_xlabel('Producto', fontsize=12)
+        ax.set_ylabel('Total de Ventas ($)', fontsize=12)
+        ax.tick_params(axis='x', rotation=45)
+        plt.tight_layout()
+        
+        ventana_graf = tk.Toplevel(ventana_graficas)
+        ventana_graf.title("Ventas por Producto")
+        canvas = FigureCanvasTkAgg(fig, ventana_graf)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill="both", expand=True)
+        logger.info("Gráfica de ventas por producto generada")
+      except Exception as e:
+        logger.error(f"Error al generar gráfica de ventas por producto: {str(e)}")
+        messagebox.showerror("Error", f"Error al generar gráfica: {str(e)}")
+    
+    def grafica_ventas_por_categoria():
+      """Gráfica de ventas totales por categoría"""
+      try:
+        df_ventas = registro_ventas.get_dataframe()
+        if df_ventas.empty:
+          messagebox.showwarning("Aviso", "No hay ventas registradas para graficar.")
+          return
+        
+        ventas_por_categoria = df_ventas.groupby('Categoría')['Total'].sum().sort_values(ascending=False)
+        
+        fig, ax = plt.subplots(figsize=(12, 6))
+        ax.bar(ventas_por_categoria.index, ventas_por_categoria.values, color='teal')
+        ax.set_title('Ventas Totales por Categoría', fontsize=14, fontweight='bold')
+        ax.set_xlabel('Categoría', fontsize=12)
+        ax.set_ylabel('Total de Ventas ($)', fontsize=12)
+        ax.tick_params(axis='x', rotation=45)
+        plt.tight_layout()
+        
+        ventana_graf = tk.Toplevel(ventana_graficas)
+        ventana_graf.title("Ventas por Categoría")
+        canvas = FigureCanvasTkAgg(fig, ventana_graf)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill="both", expand=True)
+        logger.info("Gráfica de ventas por categoría generada")
+      except Exception as e:
+        logger.error(f"Error al generar gráfica de ventas por categoría: {str(e)}")
+        messagebox.showerror("Error", f"Error al generar gráfica: {str(e)}")
+    
+    def grafica_ventas_en_tiempo():
+      """Gráfica de ventas en el tiempo"""
+      try:
+        df_ventas = registro_ventas.get_dataframe()
+        if df_ventas.empty:
+          messagebox.showwarning("Aviso", "No hay ventas registradas para graficar.")
+          return
+        
+        df_ventas['Fecha'] = pd.to_datetime(df_ventas['Fecha/Hora'])
+        df_ventas['Fecha_Formato'] = df_ventas['Fecha'].dt.date
+        ventas_por_fecha = df_ventas.groupby('Fecha_Formato')['Total'].sum().sort_index()
+        
+        fig, ax = plt.subplots(figsize=(14, 6))
+        ax.plot(ventas_por_fecha.index, ventas_por_fecha.values, marker='o', linewidth=2, markersize=4, color='purple')
+        ax.set_title('Evolución de Ventas en el Tiempo', fontsize=14, fontweight='bold')
+        ax.set_xlabel('Fecha', fontsize=12)
+        ax.set_ylabel('Total de Ventas ($)', fontsize=12)
+        ax.grid(True, alpha=0.3)
+        ax.tick_params(axis='x', rotation=45)
+        plt.tight_layout()
+        
+        ventana_graf = tk.Toplevel(ventana_graficas)
+        ventana_graf.title("Ventas en el Tiempo")
+        canvas = FigureCanvasTkAgg(fig, ventana_graf)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill="both", expand=True)
+        logger.info("Gráfica de ventas en el tiempo generada")
+      except Exception as e:
+        logger.error(f"Error al generar gráfica de ventas en el tiempo: {str(e)}")
+        messagebox.showerror("Error", f"Error al generar gráfica: {str(e)}")
+    
+    def grafica_cantidad_vendida_por_producto():
+      """Gráfica de cantidad total vendida por producto"""
+      try:
+        df_ventas = registro_ventas.get_dataframe()
+        if df_ventas.empty:
+          messagebox.showwarning("Aviso", "No hay ventas registradas para graficar.")
+          return
+        
+        cantidad_por_producto = df_ventas.groupby('Producto')['Cantidad'].sum().sort_values(ascending=False).head(10)
+        
+        fig, ax = plt.subplots(figsize=(12, 6))
+        ax.barh(cantidad_por_producto.index, cantidad_por_producto.values, color='indigo')
+        ax.set_title('Top 10 Productos por Cantidad Vendida', fontsize=14, fontweight='bold')
+        ax.set_xlabel('Cantidad Total Vendida', fontsize=12)
+        ax.set_ylabel('Producto', fontsize=12)
+        plt.tight_layout()
+        
+        ventana_graf = tk.Toplevel(ventana_graficas)
+        ventana_graf.title("Cantidad Vendida por Producto")
+        canvas = FigureCanvasTkAgg(fig, ventana_graf)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill="both", expand=True)
+        logger.info("Gráfica de cantidad vendida por producto generada")
+      except Exception as e:
+        logger.error(f"Error al generar gráfica de cantidad vendida: {str(e)}")
+        messagebox.showerror("Error", f"Error al generar gráfica: {str(e)}")
+    
+    tk.Button(frame_ventas, text="Top 10 Productos por Ventas Totales", command=grafica_ventas_por_producto, 
+              bg="#E91E63", fg="white", font=("Arial", 9, "bold"), width=30).pack(pady=3, padx=5)
+    tk.Button(frame_ventas, text="Ventas por Categoría", command=grafica_ventas_por_categoria, 
+              bg="#00BCD4", fg="white", font=("Arial", 9, "bold"), width=30).pack(pady=3, padx=5)
+    tk.Button(frame_ventas, text="Evolución de Ventas en el Tiempo", command=grafica_ventas_en_tiempo, 
+              bg="#673AB7", fg="white", font=("Arial", 9, "bold"), width=30).pack(pady=3, padx=5)
+    tk.Button(frame_ventas, text="Top 10 Productos por Cantidad Vendida", command=grafica_cantidad_vendida_por_producto, 
+              bg="#F44336", fg="white", font=("Arial", 9, "bold"), width=30).pack(pady=3, padx=5)
+    
+    # Botón para cerrar
+    btn_cerrar = tk.Button(frame_seleccion, text="Cerrar", command=ventana_graficas.destroy, 
+                          bg="#757575", fg="white", font=("Arial", 10, "bold"), width=20)
+    btn_cerrar.pack(pady=15)
+
+  def analisis_predictivo_ventas():
+    """Análisis predictivo de ventas: productos más/menos vendidos y patrones temporales"""
+    logger.info("Abriendo ventana de análisis predictivo de ventas")
+    
+    df_ventas = registro_ventas.get_dataframe()
+    if df_ventas.empty:
+      messagebox.showwarning("Aviso", "No hay ventas registradas para realizar el análisis.")
+      return
+    
+    try:
+      df_ventas['Fecha'] = pd.to_datetime(df_ventas['Fecha/Hora'])
+    except Exception as e:
+      logger.error(f"Error al procesar fechas: {str(e)}")
+      messagebox.showerror("Error", f"Error al procesar las fechas de las ventas: {str(e)}")
+      return
+    
+    ventana_analisis = tk.Toplevel(root)
+    ventana_analisis.title("Análisis Predictivo de Ventas")
+    ventana_analisis.geometry("1200x700")
+    ventana_analisis.configure(bg="#f0f0f0")
+    
+    # Frame principal con scroll
+    canvas_frame = tk.Canvas(ventana_analisis, bg="#f0f0f0")
+    scrollbar = tk.Scrollbar(ventana_analisis, orient="vertical", command=canvas_frame.yview)
+    scrollable_frame = tk.Frame(canvas_frame, bg="#f0f0f0")
+    
+    scrollable_frame.bind(
+      "<Configure>",
+      lambda e: canvas_frame.configure(scrollregion=canvas_frame.bbox("all"))
+    )
+    
+    canvas_frame.create_window((0, 0), window=scrollable_frame, anchor="nw")
+    canvas_frame.configure(yscrollcommand=scrollbar.set)
+    
+    # Título
+    tk.Label(scrollable_frame, text="Análisis Predictivo de Ventas", 
+             font=("Arial", 16, "bold"), bg="#f0f0f0").pack(pady=15)
+    
+    # ========== ANÁLISIS 1: PRODUCTOS MÁS VENDIDOS ==========
+    frame_top = tk.LabelFrame(scrollable_frame, text="Productos Más Vendidos", 
+                              font=("Arial", 12, "bold"), bg="#f0f0f0", padx=10, pady=10)
+    frame_top.pack(fill="x", padx=15, pady=10)
+    
+    # Por cantidad
+    ventas_por_producto_cantidad = df_ventas.groupby('Producto')['Cantidad'].sum().sort_values(ascending=False).head(10)
+    # Por valor total
+    ventas_por_producto_valor = df_ventas.groupby('Producto')['Total'].sum().sort_values(ascending=False).head(10)
+    
+    tk.Label(frame_top, text="Top 10 Productos por Cantidad Vendida:", 
+             font=("Arial", 10, "bold"), bg="#f0f0f0").pack(anchor="w", pady=5)
+    texto_top_cantidad = "\n".join([f"{i+1}. {prod}: {int(cant)} unidades" 
+                                     for i, (prod, cant) in enumerate(ventas_por_producto_cantidad.items())])
+    tk.Label(frame_top, text=texto_top_cantidad, font=("Arial", 9), bg="#f0f0f0", 
+             justify="left").pack(anchor="w", padx=20, pady=5)
+    
+    tk.Label(frame_top, text="Top 10 Productos por Valor de Ventas:", 
+             font=("Arial", 10, "bold"), bg="#f0f0f0").pack(anchor="w", pady=(10, 5))
+    texto_top_valor = "\n".join([f"{i+1}. {prod}: ${int(valor):,}" 
+                                  for i, (prod, valor) in enumerate(ventas_por_producto_valor.items())])
+    tk.Label(frame_top, text=texto_top_valor, font=("Arial", 9), bg="#f0f0f0", 
+             justify="left").pack(anchor="w", padx=20, pady=5)
+    
+    # ========== ANÁLISIS 2: PRODUCTOS MENOS VENDIDOS ==========
+    frame_bottom = tk.LabelFrame(scrollable_frame, text="Productos Menos Vendidos", 
+                                 font=("Arial", 12, "bold"), bg="#f0f0f0", padx=10, pady=10)
+    frame_bottom.pack(fill="x", padx=15, pady=10)
+    
+    ventas_por_producto_cantidad_min = df_ventas.groupby('Producto')['Cantidad'].sum().sort_values(ascending=True).head(10)
+    ventas_por_producto_valor_min = df_ventas.groupby('Producto')['Total'].sum().sort_values(ascending=True).head(10)
+    
+    tk.Label(frame_bottom, text="10 Productos con Menor Cantidad Vendida:", 
+             font=("Arial", 10, "bold"), bg="#f0f0f0").pack(anchor="w", pady=5)
+    texto_bottom_cantidad = "\n".join([f"{i+1}. {prod}: {int(cant)} unidades" 
+                                        for i, (prod, cant) in enumerate(ventas_por_producto_cantidad_min.items())])
+    tk.Label(frame_bottom, text=texto_bottom_cantidad, font=("Arial", 9), bg="#f0f0f0", 
+             justify="left").pack(anchor="w", padx=20, pady=5)
+    
+    tk.Label(frame_bottom, text="10 Productos con Menor Valor de Ventas:", 
+             font=("Arial", 10, "bold"), bg="#f0f0f0").pack(anchor="w", pady=(10, 5))
+    texto_bottom_valor = "\n".join([f"{i+1}. {prod}: ${int(valor):,}" 
+                                     for i, (prod, valor) in enumerate(ventas_por_producto_valor_min.items())])
+    tk.Label(frame_bottom, text=texto_bottom_valor, font=("Arial", 9), bg="#f0f0f0", 
+             justify="left").pack(anchor="w", padx=20, pady=5)
+    
+    # ========== ANÁLISIS 3: PATRONES TEMPORALES ==========
+    frame_temporal = tk.LabelFrame(scrollable_frame, text="Análisis Temporal de Ventas", 
+                                   font=("Arial", 12, "bold"), bg="#f0f0f0", padx=10, pady=10)
+    frame_temporal.pack(fill="x", padx=15, pady=10)
+    
+    # Por mes
+    df_ventas['Mes'] = df_ventas['Fecha'].dt.month
+    df_ventas['Año'] = df_ventas['Fecha'].dt.year
+    df_ventas['Dia_Semana'] = df_ventas['Fecha'].dt.day_name()
+    
+    meses_orden = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 
+                   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
+    ventas_por_mes_ordenado = df_ventas.groupby('Mes')['Total'].sum()
+    # Reindexar con nombres de meses en español
+    nuevo_indice = [meses_orden[m-1] for m in ventas_por_mes_ordenado.index]
+    ventas_por_mes_ordenado.index = nuevo_indice
+    
+    tk.Label(frame_temporal, text="Ventas por Mes (orden cronológico):", 
+             font=("Arial", 10, "bold"), bg="#f0f0f0").pack(anchor="w", pady=5)
+    texto_meses = "\n".join([f"{mes}: ${int(valor):,}" 
+                              for mes, valor in ventas_por_mes_ordenado.items()])
+    tk.Label(frame_temporal, text=texto_meses, font=("Arial", 9), bg="#f0f0f0", 
+             justify="left").pack(anchor="w", padx=20, pady=5)
+    
+    # Mejores y peores meses
+    mejor_mes = ventas_por_mes_ordenado.idxmax()
+    peor_mes = ventas_por_mes_ordenado.idxmin()
+    tk.Label(frame_temporal, 
+             text=f"Mejor mes: {mejor_mes} (${int(ventas_por_mes_ordenado[mejor_mes]):,}) | "
+                  f"Peor mes: {peor_mes} (${int(ventas_por_mes_ordenado[peor_mes]):,})", 
+             font=("Arial", 9, "bold"), bg="#f0f0f0", fg="#2E7D32").pack(anchor="w", padx=20, pady=5)
+    
+    # Por día de la semana
+    orden_dias = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+    nombres_dias = {'Monday': 'Lunes', 'Tuesday': 'Martes', 'Wednesday': 'Miércoles', 
+                    'Thursday': 'Jueves', 'Friday': 'Viernes', 'Saturday': 'Sábado', 'Sunday': 'Domingo'}
+    ventas_por_dia = df_ventas.groupby('Dia_Semana')['Total'].sum()
+    ventas_por_dia_ordenado = ventas_por_dia.reindex([d for d in orden_dias if d in ventas_por_dia.index])
+    
+    tk.Label(frame_temporal, text="Ventas por Día de la Semana:", 
+             font=("Arial", 10, "bold"), bg="#f0f0f0").pack(anchor="w", pady=(10, 5))
+    texto_dias = "\n".join([f"{nombres_dias.get(dia, dia)}: ${int(valor):,}" 
+                             for dia, valor in ventas_por_dia_ordenado.items()])
+    tk.Label(frame_temporal, text=texto_dias, font=("Arial", 9), bg="#f0f0f0", 
+             justify="left").pack(anchor="w", padx=20, pady=5)
+    
+    # ========== ANÁLISIS 4: PRODUCTOS POR PERÍODO ==========
+    frame_periodo = tk.LabelFrame(scrollable_frame, text="Productos por Período del Año", 
+                                  font=("Arial", 12, "bold"), bg="#f0f0f0", padx=10, pady=10)
+    frame_periodo.pack(fill="x", padx=15, pady=10)
+    
+    # Definir estaciones
+    def obtener_estacion(mes):
+      if mes in [12, 1, 2]:
+        return "Invierno"
+      elif mes in [3, 4, 5]:
+        return "Primavera"
+      elif mes in [6, 7, 8]:
+        return "Verano"
+      else:
+        return "Otoño"
+    
+    df_ventas['Estacion'] = df_ventas['Mes'].apply(obtener_estacion)
+    
+    # Productos más vendidos por estación
+    estaciones = ['Primavera', 'Verano', 'Otoño', 'Invierno']
+    texto_estaciones = ""
+    for estacion in estaciones:
+      df_estacion = df_ventas[df_ventas['Estacion'] == estacion]
+      if not df_estacion.empty:
+        top_productos_estacion = df_estacion.groupby('Producto')['Cantidad'].sum().sort_values(ascending=False).head(5)
+        texto_estaciones += f"\n{estacion}:\n"
+        texto_estaciones += "\n".join([f"  • {prod}: {int(cant)} unidades" 
+                                        for prod, cant in top_productos_estacion.items()])
+        texto_estaciones += "\n"
+    
+    tk.Label(frame_periodo, text="Top 5 Productos por Estación:", 
+             font=("Arial", 10, "bold"), bg="#f0f0f0").pack(anchor="w", pady=5)
+    tk.Label(frame_periodo, text=texto_estaciones, font=("Arial", 9), bg="#f0f0f0", 
+             justify="left").pack(anchor="w", padx=20, pady=5)
+    
+    # ========== ANÁLISIS 5: PREDICCIONES ==========
+    frame_prediccion = tk.LabelFrame(scrollable_frame, text="🔮 Predicciones y Tendencias", 
+                                     font=("Arial", 12, "bold"), bg="#f0f0f0", padx=10, pady=10)
+    frame_prediccion.pack(fill="x", padx=15, pady=10)
+    
+    # Predicción simple basada en tendencia mensual
+    if len(ventas_por_mes_ordenado) >= 2:
+      # Calcular tendencia
+      valores = ventas_por_mes_ordenado.values
+      if len(valores) > 1:
+        tendencia = (valores[-1] - valores[0]) / len(valores) if len(valores) > 1 else 0
+        ultimo_valor = valores[-1]
+        prediccion_proximo_mes = ultimo_valor + tendencia
+        
+        tk.Label(frame_prediccion, text="Predicción para el Próximo Mes:", 
+                 font=("Arial", 10, "bold"), bg="#f0f0f0").pack(anchor="w", pady=5)
+        tk.Label(frame_prediccion, 
+                 text=f"Basado en la tendencia histórica, se esperan ventas de aproximadamente: ${int(prediccion_proximo_mes):,}", 
+                 font=("Arial", 9), bg="#f0f0f0", fg="#1976D2").pack(anchor="w", padx=20, pady=5)
+    
+    # Productos con tendencia creciente
+    productos_tendencia = {}
+    for producto in df_ventas['Producto'].unique():
+      df_producto = df_ventas[df_ventas['Producto'] == producto].sort_values('Fecha')
+      if len(df_producto) >= 3:
+        # Dividir en dos períodos
+        mitad = len(df_producto) // 2
+        ventas_primera_mitad = df_producto.iloc[:mitad]['Cantidad'].sum()
+        ventas_segunda_mitad = df_producto.iloc[mitad:]['Cantidad'].sum()
+        if ventas_segunda_mitad > ventas_primera_mitad * 1.1:  # 10% de crecimiento
+          productos_tendencia[producto] = ((ventas_segunda_mitad - ventas_primera_mitad) / ventas_primera_mitad) * 100
+    
+    if productos_tendencia:
+      productos_crecientes = sorted(productos_tendencia.items(), key=lambda x: x[1], reverse=True)[:5]
+      tk.Label(frame_prediccion, text="Productos con Tendencia Creciente:", 
+               font=("Arial", 10, "bold"), bg="#f0f0f0").pack(anchor="w", pady=(10, 5))
+      texto_crecientes = "\n".join([f"  • {prod}: +{crecimiento:.1f}% de crecimiento" 
+                                     for prod, crecimiento in productos_crecientes])
+      tk.Label(frame_prediccion, text=texto_crecientes, font=("Arial", 9), bg="#f0f0f0", 
+               justify="left", fg="#2E7D32").pack(anchor="w", padx=20, pady=5)
+    
+    # Botones para gráficas
+    frame_botones_graf = tk.Frame(scrollable_frame, bg="#f0f0f0")
+    frame_botones_graf.pack(fill="x", padx=15, pady=15)
+    
+    def mostrar_grafica_temporal():
+      """Gráfica de ventas por mes"""
+      fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
+      
+      # Gráfica de ventas por mes
+      ax1.bar(ventas_por_mes_ordenado.index, ventas_por_mes_ordenado.values, color='steelblue')
+      ax1.set_title('Ventas Totales por Mes', fontsize=14, fontweight='bold')
+      ax1.set_xlabel('Mes', fontsize=12)
+      ax1.set_ylabel('Ventas Totales ($)', fontsize=12)
+      ax1.tick_params(axis='x', rotation=45)
+      ax1.grid(True, alpha=0.3, axis='y')
+      
+      # Gráfica de ventas por día de la semana
+      nombres_dias_esp = [nombres_dias.get(dia, dia) for dia in ventas_por_dia_ordenado.index]
+      ax2.bar(nombres_dias_esp, ventas_por_dia_ordenado.values, color='coral')
+      ax2.set_title('Ventas Totales por Día de la Semana', fontsize=14, fontweight='bold')
+      ax2.set_xlabel('Día de la Semana', fontsize=12)
+      ax2.set_ylabel('Ventas Totales ($)', fontsize=12)
+      ax2.tick_params(axis='x', rotation=45)
+      ax2.grid(True, alpha=0.3, axis='y')
+      
+      plt.tight_layout()
+      
+      ventana_graf = tk.Toplevel(ventana_analisis)
+      ventana_graf.title("Análisis Temporal de Ventas")
+      canvas = FigureCanvasTkAgg(fig, ventana_graf)
+      canvas.draw()
+      canvas.get_tk_widget().pack(fill="both", expand=True)
+    
+    def mostrar_grafica_productos_periodo():
+      """Gráfica de productos por período"""
+      fig, ax = plt.subplots(figsize=(14, 8))
+      
+      # Productos más vendidos por estación
+      estaciones = ['Primavera', 'Verano', 'Otoño', 'Invierno']
+      productos_por_estacion = {}
+      
+      for estacion in estaciones:
+        df_estacion = df_ventas[df_ventas['Estacion'] == estacion]
+        if not df_estacion.empty:
+          top_producto = df_estacion.groupby('Producto')['Cantidad'].sum().sort_values(ascending=False).head(1)
+          if not top_producto.empty:
+            productos_por_estacion[estacion] = top_producto.index[0]
+      
+      if productos_por_estacion:
+        estaciones_list = list(productos_por_estacion.keys())
+        productos_list = list(productos_por_estacion.values())
+        colores = ['#FF6B6B', '#4ECDC4', '#FFE66D', '#95E1D3']
+        
+        ax.barh(estaciones_list, [1]*len(estaciones_list), color=colores[:len(estaciones_list)])
+        for i, (estacion, producto) in enumerate(productos_por_estacion.items()):
+          ax.text(0.5, i, f"{producto}", ha='center', va='center', fontweight='bold', fontsize=10)
+        
+        ax.set_title('Productos Más Vendidos por Estación', fontsize=14, fontweight='bold')
+        ax.set_xlabel('Estación', fontsize=12)
+        ax.set_ylabel('Producto', fontsize=12)
+        ax.set_xticks([])
+      
+      plt.tight_layout()
+      
+      ventana_graf = tk.Toplevel(ventana_analisis)
+      ventana_graf.title("Productos por Período")
+      canvas = FigureCanvasTkAgg(fig, ventana_graf)
+      canvas.draw()
+      canvas.get_tk_widget().pack(fill="both", expand=True)
+    
+    tk.Button(frame_botones_graf, text="Ver Gráfica Temporal", command=mostrar_grafica_temporal, 
+              bg="#2196F3", fg="white", font=("Arial", 10, "bold"), width=25).pack(side="left", padx=5)
+    tk.Button(frame_botones_graf, text="Ver Gráfica por Período", command=mostrar_grafica_productos_periodo, 
+              bg="#FF9800", fg="white", font=("Arial", 10, "bold"), width=25).pack(side="left", padx=5)
+    tk.Button(frame_botones_graf, text="Cerrar", command=ventana_analisis.destroy, 
+              bg="#757575", fg="white", font=("Arial", 10, "bold"), width=15).pack(side="right", padx=5)
+    
+    # Configurar scroll
+    canvas_frame.pack(side="left", fill="both", expand=True)
+    scrollbar.pack(side="right", fill="y")
+    
+    logger.info("Análisis predictivo de ventas completado")
+
+  def generar_informe_automatico():
+    """Genera un informe automático completo de inventario y ventas"""
+    logger.info("Generando informe automático")
+    
+    informe_texto = []
+    fecha_actual = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    
+    # Encabezado del informe
+    informe_texto.append("=" * 80)
+    informe_texto.append("INFORME AUTOMÁTICO DE GESTIÓN DE INVENTARIO Y VENTAS")
+    informe_texto.append("=" * 80)
+    informe_texto.append(f"Fecha de generación: {fecha_actual}")
+    informe_texto.append("")
+    
+    # ========== SECCIÓN 1: RESUMEN DE INVENTARIO ==========
+    informe_texto.append("=" * 80)
+    informe_texto.append("1. RESUMEN DE INVENTARIO")
+    informe_texto.append("=" * 80)
+    informe_texto.append("")
+    
+    df_inventario = inventario_obj.get_dataframe()
+    total_productos = len(inventario_obj.productos)
+    valor_total_inventario = inventario_obj.calcular_valor_total_recursivo()
+    productos_stock_bajo = inventario_obj.obtener_productos_stock_bajo()
+    
+    informe_texto.append(f"Total de productos en inventario: {total_productos}")
+    informe_texto.append(f"Valor total del inventario: ${int(valor_total_inventario):,}")
+    informe_texto.append(f"Productos con stock bajo (< 10 unidades): {len(productos_stock_bajo)}")
+    informe_texto.append("")
+    
+    # Productos por categoría
+    if not df_inventario.empty:
+      productos_por_categoria = df_inventario.groupby('Categoría').size()
+      informe_texto.append("Distribución de productos por categoría:")
+      for categoria, cantidad in productos_por_categoria.items():
+        porcentaje = (cantidad / total_productos * 100) if total_productos > 0 else 0
+        informe_texto.append(f"  • {categoria}: {cantidad} productos ({porcentaje:.1f}%)")
+      informe_texto.append("")
+      
+      # Stock total por categoría
+      stock_por_categoria = df_inventario.groupby('Categoría')['Cantidad'].sum()
+      informe_texto.append("Stock total por categoría:")
+      for categoria, stock in stock_por_categoria.items():
+        informe_texto.append(f"  • {categoria}: {int(stock)} unidades")
+      informe_texto.append("")
+      
+      # Valor por categoría
+      df_inventario['ValorTotal'] = df_inventario['PrecioVenta'] * df_inventario['Cantidad']
+      valor_por_categoria = df_inventario.groupby('Categoría')['ValorTotal'].sum()
+      informe_texto.append("Valor del inventario por categoría:")
+      for categoria, valor in valor_por_categoria.items():
+        informe_texto.append(f"  • {categoria}: ${int(valor):,}")
+      informe_texto.append("")
+    
+    # Productos con stock bajo
+    if productos_stock_bajo:
+      informe_texto.append("PRODUCTOS CON STOCK BAJO (< 10 unidades):")
+      for producto in productos_stock_bajo[:20]:  # Limitar a 20 para no hacer el informe muy largo
+        informe_texto.append(f"  • {producto.nombre} (SKU: {producto.sku}): {producto.cantidad} unidades")
+      if len(productos_stock_bajo) > 20:
+        informe_texto.append(f"  ... y {len(productos_stock_bajo) - 20} productos más")
+      informe_texto.append("")
+    
+    # Top 10 productos con mayor stock
+    if not df_inventario.empty:
+      top_stock = df_inventario.nlargest(10, 'Cantidad')[['Nombre', 'Cantidad', 'Categoría']]
+      informe_texto.append("Top 10 productos con mayor stock:")
+      for idx, (_, row) in enumerate(top_stock.iterrows(), 1):
+        informe_texto.append(f"  {idx}. {row['Nombre']} ({row['Categoría']}): {int(row['Cantidad'])} unidades")
+      informe_texto.append("")
+    
+    # ========== SECCIÓN 2: RESUMEN DE VENTAS ==========
+    informe_texto.append("=" * 80)
+    informe_texto.append("2. RESUMEN DE VENTAS")
+    informe_texto.append("=" * 80)
+    informe_texto.append("")
+    
+    df_ventas = registro_ventas.get_dataframe()
+    if df_ventas.empty:
+      informe_texto.append("No hay ventas registradas.")
+      informe_texto.append("")
+    else:
+      total_ventas = len(df_ventas)
+      total_ingresos = df_ventas['Total'].sum()
+      cantidad_total_vendida = df_ventas['Cantidad'].sum()
+      ticket_promedio = total_ingresos / total_ventas if total_ventas > 0 else 0
+      
+      informe_texto.append(f"Total de ventas registradas: {total_ventas}")
+      informe_texto.append(f"Ingresos totales: ${int(total_ingresos):,}")
+      informe_texto.append(f"Cantidad total de productos vendidos: {int(cantidad_total_vendida)} unidades")
+      informe_texto.append(f"Ticket promedio: ${int(ticket_promedio):,}")
+      informe_texto.append("")
+      
+      # Ventas por categoría
+      ventas_por_categoria = df_ventas.groupby('Categoría')['Total'].sum()
+      informe_texto.append("Ventas por categoría:")
+      for categoria, total in ventas_por_categoria.items():
+        porcentaje = (total / total_ingresos * 100) if total_ingresos > 0 else 0
+        informe_texto.append(f"  • {categoria}: ${int(total):,} ({porcentaje:.1f}%)")
+      informe_texto.append("")
+      
+      # Top 10 productos más vendidos (por cantidad)
+      top_productos_cantidad = df_ventas.groupby('Producto')['Cantidad'].sum().sort_values(ascending=False).head(10)
+      informe_texto.append("Top 10 productos más vendidos (por cantidad):")
+      for idx, (producto, cantidad) in enumerate(top_productos_cantidad.items(), 1):
+        informe_texto.append(f"  {idx}. {producto}: {int(cantidad)} unidades")
+      informe_texto.append("")
+      
+      # Top 10 productos más vendidos (por valor)
+      top_productos_valor = df_ventas.groupby('Producto')['Total'].sum().sort_values(ascending=False).head(10)
+      informe_texto.append("Top 10 productos más vendidos (por valor):")
+      for idx, (producto, valor) in enumerate(top_productos_valor.items(), 1):
+        informe_texto.append(f"  {idx}. {producto}: ${int(valor):,}")
+      informe_texto.append("")
+      
+      # Análisis temporal
+      try:
+        df_ventas['Fecha'] = pd.to_datetime(df_ventas['Fecha/Hora'])
+        df_ventas['Mes'] = df_ventas['Fecha'].dt.month
+        meses_orden = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 
+                       'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
+        ventas_por_mes = df_ventas.groupby('Mes')['Total'].sum()
+        
+        informe_texto.append("Ventas por mes:")
+        for mes_num, total_mes in ventas_por_mes.items():
+          mes_nombre = meses_orden[mes_num - 1]
+          porcentaje = (total_mes / total_ingresos * 100) if total_ingresos > 0 else 0
+          informe_texto.append(f"  • {mes_nombre}: ${int(total_mes):,} ({porcentaje:.1f}%)")
+        informe_texto.append("")
+        
+        # Mejor y peor mes
+        if len(ventas_por_mes) > 0:
+          mejor_mes_num = ventas_por_mes.idxmax()
+          peor_mes_num = ventas_por_mes.idxmin()
+          informe_texto.append(f"Mejor mes: {meses_orden[mejor_mes_num - 1]} (${int(ventas_por_mes[mejor_mes_num]):,})")
+          informe_texto.append(f"Peor mes: {meses_orden[peor_mes_num - 1]} (${int(ventas_por_mes[peor_mes_num]):,})")
+          informe_texto.append("")
+      except Exception as e:
+        logger.error(f"Error al procesar análisis temporal: {str(e)}")
+    
+    # ========== SECCIÓN 3: ANÁLISIS Y RECOMENDACIONES ==========
+    informe_texto.append("=" * 80)
+    informe_texto.append("3. ANÁLISIS Y RECOMENDACIONES")
+    informe_texto.append("=" * 80)
+    informe_texto.append("")
+    
+    # Recomendaciones de stock
+    if productos_stock_bajo:
+      informe_texto.append("RECOMENDACIONES DE INVENTARIO:")
+      informe_texto.append(f"  • Se recomienda reponer stock de {len(productos_stock_bajo)} productos con stock bajo.")
+      informe_texto.append("  • Revise los productos listados en la sección de stock bajo.")
+      informe_texto.append("")
+    
+    # Análisis de rotación (si hay ventas)
+    if not df_ventas.empty and not df_inventario.empty:
+      informe_texto.append("ANÁLISIS DE ROTACIÓN:")
+      # Productos que se venden pero tienen mucho stock
+      productos_vendidos = df_ventas['Producto'].unique()
+      for producto_nombre in productos_vendidos[:5]:  # Analizar top 5
+        producto_inv = inventario_obj.buscar_producto_por_nombre(producto_nombre)
+        if producto_inv:
+          ventas_producto = df_ventas[df_ventas['Producto'] == producto_nombre]['Cantidad'].sum()
+          if producto_inv.cantidad > ventas_producto * 3:
+            informe_texto.append(f"  • {producto_nombre}: Stock alto ({producto_inv.cantidad}) vs ventas ({int(ventas_producto)}). Considerar reducir inventario.")
+      informe_texto.append("")
+    
+    # ========== SECCIÓN 4: MÉTRICAS CLAVE ==========
+    informe_texto.append("=" * 80)
+    informe_texto.append("4. MÉTRICAS CLAVE")
+    informe_texto.append("=" * 80)
+    informe_texto.append("")
+    
+    if not df_ventas.empty:
+      informe_texto.append(f"Ingresos totales: ${int(total_ingresos):,}")
+      informe_texto.append(f"Valor del inventario: ${int(valor_total_inventario):,}")
+      if valor_total_inventario > 0:
+        ratio_ventas_inventario = (total_ingresos / valor_total_inventario) * 100
+        informe_texto.append(f"Ratio ventas/inventario: {ratio_ventas_inventario:.1f}%")
+      informe_texto.append(f"Ticket promedio: ${int(ticket_promedio):,}")
+      informe_texto.append(f"Total de productos únicos vendidos: {df_ventas['Producto'].nunique()}")
+      informe_texto.append("")
+    
+    # Pie de página
+    informe_texto.append("=" * 80)
+    informe_texto.append("Fin del informe")
+    informe_texto.append("=" * 80)
+    
+    # Convertir lista a texto
+    informe_completo = "\n".join(informe_texto)
+    
+    # Mostrar informe en ventana
+    ventana_informe = tk.Toplevel(root)
+    ventana_informe.title("Informe Automático de Gestión")
+    ventana_informe.geometry("900x700")
+    
+    # Frame con scroll
+    frame_scroll = tk.Frame(ventana_informe)
+    frame_scroll.pack(fill="both", expand=True, padx=10, pady=10)
+    
+    scrollbar = tk.Scrollbar(frame_scroll)
+    scrollbar.pack(side="right", fill="y")
+    
+    texto_informe = tk.Text(frame_scroll, wrap="none", yscrollcommand=scrollbar.set, 
+                           font=("Courier", 10), bg="#ffffff")
+    texto_informe.pack(side="left", fill="both", expand=True)
+    scrollbar.config(command=texto_informe.yview)
+    
+    texto_informe.insert("1.0", informe_completo)
+    texto_informe.config(state="disabled")
+    
+    # Frame para botones
+    frame_botones_informe = tk.Frame(ventana_informe)
+    frame_botones_informe.pack(fill="x", padx=10, pady=10)
+    
+    def guardar_informe():
+      """Guarda el informe en un archivo de texto"""
+      try:
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        nombre_archivo = f"informe_automatico_{timestamp}.txt"
+        with open(nombre_archivo, 'w', encoding='utf-8') as f:
+          f.write(informe_completo)
+        messagebox.showinfo("Éxito", f"Informe guardado exitosamente como:\n{nombre_archivo}")
+        logger.info(f"Informe guardado: {nombre_archivo}")
+      except Exception as e:
+        logger.error(f"Error al guardar informe: {str(e)}")
+        messagebox.showerror("Error", f"Error al guardar el informe: {str(e)}")
+    
+    def copiar_informe():
+      """Copia el informe al portapapeles"""
+      try:
+        ventana_informe.clipboard_clear()
+        ventana_informe.clipboard_append(informe_completo)
+        messagebox.showinfo("Éxito", "Informe copiado al portapapeles")
+        logger.info("Informe copiado al portapapeles")
+      except Exception as e:
+        logger.error(f"Error al copiar informe: {str(e)}")
+        messagebox.showerror("Error", f"Error al copiar el informe: {str(e)}")
+    
+    tk.Button(frame_botones_informe, text="Guardar Informe", command=guardar_informe, 
+              bg="#4CAF50", fg="white", font=("Arial", 10, "bold"), width=20).pack(side="left", padx=5)
+    tk.Button(frame_botones_informe, text="Copiar al Portapapeles", command=copiar_informe, 
+              bg="#2196F3", fg="white", font=("Arial", 10, "bold"), width=25).pack(side="left", padx=5)
+    tk.Button(frame_botones_informe, text="Cerrar", command=ventana_informe.destroy, 
+              bg="#757575", fg="white", font=("Arial", 10, "bold"), width=15).pack(side="right", padx=5)
+    
+    logger.info("Informe automático generado exitosamente")
+
     
 
-  # Botones
-  frame = tk.Frame(root)
-  frame.pack(fill="x", padx=11, pady=5)
-  btn_agregar = tk.Button(frame, text="Agregar", command=agregar, bg="#69F36E", fg="white", font=("Arial", 9, "bold"))
-  btn_eliminar = tk.Button(frame, text="Eliminar", command=eliminar, bg="#D80000", fg="white", font=("Arial", 9, "bold"))
-  btn_actualizar = tk.Button(frame, text="Actualizar", command=actualizar, bg="#6E03FA", fg="white", font=("Arial", 9, "bold"))
-  btn_mostrar = tk.Button(frame, text="Refrescar", command=refresh_tree)
-  btn_entrada = tk.Button(frame, text="Registrar Entrada", command=entrada)
-  btn_salida = tk.Button(frame, text="Registrar Salida", command=salida)
-  btn_reporte = tk.Button(frame, text="Reporte stock bajo", command=reporte_stock_bajo, bg="#FF6600", fg="white", font=("Arial", 9, "bold"))
-  btn_buscar = tk.Button(frame, text="Buscar por SKU", command=buscar_sku, bg="#00ACC1", fg="white", font=("Arial", 9, "bold"))
-  btn_exportar = tk.Button(frame, text="Exportar a Excel", command=exportar_xls,bg="#1D6F42", fg="white", font=("Arial", 9, "bold"))
-  btn_ventas = tk.Button(frame, text="Registrar Ventas", command=ventas, bg="#2196F3", fg="white", font=("Arial", 9, "bold"))
-  btn_gestionar_cat = tk.Button(frame, text="Gestionar Categorías", command=gestionar_categorias, bg="#E91E63", fg="white", font=("Arial", 9, "bold"))
+  # Botones - Organizados en 2 filas compactas
+  frame_botones = tk.Frame(root, bg="#f0f0f0")
+  frame_botones.pack(fill="x", padx=11, pady=5)
+  
+  # Fila 1: Botones principales de gestión
+  frame_fila1 = tk.Frame(frame_botones, bg="#f0f0f0")
+  frame_fila1.pack(fill="x", pady=3)
+  btn_agregar = tk.Button(frame_fila1, text="Agregar", command=agregar, bg="#69F36E", fg="white", font=("Arial", 9, "bold"))
+  btn_eliminar = tk.Button(frame_fila1, text="Eliminar", command=eliminar, bg="#D80000", fg="white", font=("Arial", 9, "bold"))
+  btn_actualizar = tk.Button(frame_fila1, text="Actualizar", command=actualizar, bg="#6E03FA", fg="white", font=("Arial", 9, "bold"))
+  btn_mostrar = tk.Button(frame_fila1, text="Refrescar", command=refresh_tree, bg="#9E9E9E", fg="white", font=("Arial", 9, "bold"))
+  btn_entrada = tk.Button(frame_fila1, text="Registrar Entrada", command=entrada, bg="#4CAF50", fg="white", font=("Arial", 9, "bold"))
+  btn_salida = tk.Button(frame_fila1, text="Registrar Salida", command=salida, bg="#F44336", fg="white", font=("Arial", 9, "bold"))
+  btn_buscar = tk.Button(frame_fila1, text="Buscar por SKU", command=buscar_sku, bg="#00ACC1", fg="white", font=("Arial", 9, "bold"))
+  btn_reporte = tk.Button(frame_fila1, text="Reporte stock bajo", command=reporte_stock_bajo, bg="#FF6600", fg="white", font=("Arial", 9, "bold"))
+  btn_ventas = tk.Button(frame_fila1, text="Registrar Ventas", command=ventas, bg="#2196F3", fg="white", font=("Arial", 9, "bold"))
+  btn_graficas = tk.Button(frame_fila1, text="Ver Gráficas", command=mostrar_graficas, bg="#FF6B35", fg="white", font=("Arial", 9, "bold"))
+  btn_analisis_predictivo = tk.Button(frame_fila1, text="Análisis Predictivo", command=analisis_predictivo_ventas, bg="#9C27B0", fg="white", font=("Arial", 9, "bold"))
+  
+  btn_agregar.pack(side="left", padx=2, pady=3)
+  btn_eliminar.pack(side="left", padx=2, pady=3)
+  btn_actualizar.pack(side="left", padx=2, pady=3)
+  btn_mostrar.pack(side="left", padx=2, pady=3)
+  btn_entrada.pack(side="left", padx=2, pady=3)
+  btn_salida.pack(side="left", padx=2, pady=3)
+  btn_buscar.pack(side="left", padx=2, pady=3)
+  btn_reporte.pack(side="left", padx=2, pady=3)
+  btn_ventas.pack(side="left", padx=2, pady=3)
+  btn_graficas.pack(side="left", padx=2, pady=3)
+  btn_analisis_predictivo.pack(side="left", padx=2, pady=3)
+  
+  # Fila 2: Botones de utilidades y configuración
+  frame_fila2 = tk.Frame(frame_botones, bg="#f0f0f0")
+  frame_fila2.pack(fill="x", pady=3)
+  btn_exportar = tk.Button(frame_fila2, text="Exportar a Excel", command=exportar_xls, bg="#1D6F42", fg="white", font=("Arial", 9, "bold"))
+  btn_exportar.pack(side="left", padx=2, pady=3)
   
   def importar_inventario():
     """Importa inventario desde un archivo Excel"""
@@ -2017,8 +2851,11 @@ def main():
       logger.error(f"Error al limpiar datos: {str(e)}")
       messagebox.showerror("Error", f"Error al limpiar datos: {str(e)}")
   
-  btn_importar_inventario = tk.Button(frame, text="Importar Inventario", command=importar_inventario, bg="#9C27B0", fg="white", font=("Arial", 9, "bold"))
-  btn_limpiar_datos = tk.Button(frame, text="Limpiar Datos", command=limpiar_datos, bg="#FF5722", fg="white", font=("Arial", 9, "bold"))
+  # Agregar botones restantes a la fila 2
+  btn_importar_inventario = tk.Button(frame_fila2, text="Importar Inventario", command=importar_inventario, bg="#9C27B0", fg="white", font=("Arial", 9, "bold"))
+  btn_importar_inventario.pack(side="left", padx=2, pady=3)
+  btn_gestionar_cat = tk.Button(frame_fila2, text="Gestionar Categorías", command=gestionar_categorias, bg="#E91E63", fg="white", font=("Arial", 9, "bold"))
+  btn_gestionar_cat.pack(side="left", padx=2, pady=3)
   
   def generar_datos_aleatorios():
     """Genera datos aleatorios en archivos Excel con errores y datos nulos"""
@@ -2078,9 +2915,9 @@ def main():
         
         messagebox.showinfo("Generación Completada",
           f"Archivos Excel generados exitosamente:\n\n"
-          f"📁 {resultado['archivo_productos']}\n"
+          f"{resultado['archivo_productos']}\n"
           f"   - {resultado['productos_generados']:,} productos generados\n\n"
-          f"📁 {resultado['archivo_ventas']}\n"
+          f"{resultado['archivo_ventas']}\n"
           f"   - {resultado['ventas_generadas']:,} ventas generadas\n\n"
           f"Nota: Los archivos contienen errores y datos nulos intencionales\n"
           f"para poder probar la función de limpieza de datos.")
@@ -2105,7 +2942,12 @@ def main():
     dialog.bind("<Return>", lambda e: generar())
     dialog.bind("<Escape>", lambda e: dialog.destroy())
   
-  btn_generar_datos = tk.Button(frame, text="Generar Datos Aleatorios", command=generar_datos_aleatorios, bg="#FF9800", fg="white", font=("Arial", 9, "bold"))
+  btn_generar_informe = tk.Button(frame_fila2, text="Generar Informe", command=generar_informe_automatico, bg="#607D8B", fg="white", font=("Arial", 9, "bold"))
+  btn_generar_informe.pack(side="left", padx=2, pady=3)
+  btn_generar_datos = tk.Button(frame_fila2, text="Generar Datos Aleatorios", command=generar_datos_aleatorios, bg="#FF9800", fg="white", font=("Arial", 9, "bold"))
+  btn_generar_datos.pack(side="left", padx=2, pady=3)
+  btn_limpiar_datos = tk.Button(frame_fila2, text="Limpiar Datos", command=limpiar_datos, bg="#FF5722", fg="white", font=("Arial", 9, "bold"))
+  btn_limpiar_datos.pack(side="left", padx=2, pady=3)
   
   def cerrar_sesion():
     """Cierra la sesión actual y vuelve al login"""
@@ -2142,12 +2984,13 @@ def main():
       logger.error(f"Error al reiniciar aplicación: {str(e)}")
       messagebox.showinfo("Sesión cerrada", "Has cerrado sesión exitosamente. Por favor, reinicia la aplicación manualmente.")
   
-  btn_logout = tk.Button(frame, text="Cerrar Sesión", command=cerrar_sesion, bg="#F44336", fg="white", font=("Arial", 9, "bold"))
+  btn_logout = tk.Button(frame_fila2, text="Cerrar Sesión", command=cerrar_sesion, bg="#F44336", fg="white", font=("Arial", 9, "bold"))
+  btn_logout.pack(side="left", padx=2, pady=3)
 
   # Botón de descarga de log en ubicación discreta (esquina inferior derecha, casi inaccesible)
   btn_descargar_log = tk.Button(
     root, 
-    text="📋", 
+    text="Descargar Log", 
     command=descargar_log, 
     bg="#9C27B0", 
     fg="white", 
@@ -2173,9 +3016,6 @@ def main():
     btn_actualizar.config(state='disabled')
     btn_descargar_log.config(state='disabled')
     btn_gestionar_cat.config(state='disabled')
-
-  for w in (btn_agregar, btn_eliminar, btn_actualizar, btn_mostrar, btn_entrada, btn_salida, btn_reporte, btn_buscar, btn_exportar, btn_ventas, btn_gestionar_cat, btn_importar_inventario, btn_generar_datos, btn_limpiar_datos, btn_logout):
-    w.pack(side="left", padx=5, pady=5)
 
   logger.info("Interfaz gráfica inicializada - Iniciando loop principal")
   refresh_tree()  # Esto también actualizará el valor total automáticamente
