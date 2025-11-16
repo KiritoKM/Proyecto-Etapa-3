@@ -8,7 +8,7 @@ class User:
 
 # Base de usuarios en memoria
 _USERS_DB = {
-    "a": ("1", "admin"),
+    "andres": ("1", "admin"),
     "lucio": ("1234", "user"),
     "camilo": ("abcd", "user"),
 }
